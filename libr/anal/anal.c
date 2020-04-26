@@ -126,7 +126,6 @@ R_API RAnal *r_anal_new(void) {
 			r_anal_add (anal, anal_static_plugins[i]);
 		}
 	}
-	anal->cmdtail = r_strbuf_new (NULL);
 	return anal;
 }
 
@@ -169,7 +168,6 @@ R_API RAnal *r_anal_free(RAnal *a) {
 		a->esil = NULL;
 	}
 	free (a->last_disasm_reg);
-	r_strbuf_free (a->cmdtail);
 	r_str_constpool_fini (&a->constpool);
 	free (a);
 	return NULL;
@@ -519,6 +517,10 @@ R_API bool r_anal_noreturn_add(RAnal *anal, const char *name, ut64 addr) {
 	char *fnl_name = NULL;
 	if (addr != UT64_MAX) {
 		if (sdb_bool_set (TDB, K_NORET_ADDR (addr), true, 0)) {
+			RAnalFunction *fcn = r_anal_get_function_at (anal, addr);
+			if (fcn) {
+				fcn->is_noreturn = true;
+			}
 			return true;
 		}
 	}
@@ -532,6 +534,9 @@ R_API bool r_anal_noreturn_add(RAnal *anal, const char *name, ut64 addr) {
 			return false;
 		}
 		tmp_name = fcn ? fcn->name: fi->name;
+		if (fcn) {
+			fcn->is_noreturn = true;
+		}
 	}
 	if (r_type_func_exist (TDB, tmp_name)) {
 		fnl_name = strdup (tmp_name);

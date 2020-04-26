@@ -212,6 +212,12 @@ static bool cb_debug_hitinfo(void *user, void *data) {
 	return true;
 }
 
+static bool cb_anal_jmpretpoline(void *user, void *data) {
+	RCore *core = (RCore*) user;
+	RConfigNode *node = (RConfigNode*) data;
+	core->anal->opt.retpoline = node->i_value;
+	return true;
+}
 static bool cb_anal_jmptailcall(void *user, void *data) {
 	RCore *core = (RCore*) user;
 	RConfigNode *node = (RConfigNode*) data;
@@ -2869,12 +2875,13 @@ R_API int r_core_config_init(RCore *core) {
 		"anal.fcn", "anal.bb",
 	NULL);
 	SETI ("anal.timeout", 0, "Stop analyzing after a couple of seconds");
+	SETCB ("anal.jmp.retpoline", "true", &cb_anal_jmpretpoline, "Analyze retpolines, may be slower if not needed");
 	SETICB ("anal.jmp.tailcall", 0, &cb_anal_jmptailcall, "Consume a branch as a call if delta is big");
 
 	SETCB ("anal.armthumb", "false", &cb_analarmthumb, "aae computes arm/thumb changes (lot of false positives ahead)");
 	SETCB ("anal.jmp.after", "true", &cb_analafterjmp, "Continue analysis after jmp/ujmp");
 	SETCB ("anal.endsize", "true", &cb_anal_endsize, "Adjust function size at the end of the analysis (known to be buggy)");
-	SETCB ("anal.delay", "true", &cb_anal_delay, "Enable delay slot analysis if supported by the architecgture");
+	SETCB ("anal.delay", "true", &cb_anal_delay, "Enable delay slot analysis if supported by the architecture");
 	SETICB ("anal.depth", 64, &cb_analdepth, "Max depth at code analysis"); // XXX: warn if depth is > 50 .. can be problematic
 	SETICB ("anal.graph_depth", 256, &cb_analgraphdepth, "Max depth for path search");
 	SETICB ("anal.sleep", 0, &cb_analsleep, "Sleep N usecs every so often during analysis. Avoid 100% CPU usage");
@@ -2936,7 +2943,7 @@ R_API int r_core_config_init(RCore *core) {
 #endif
 #if __x86_64__
 	SETI ("dbg.glibc.ma_offset", 0x000000, "Main_arena offset from his symbol");
-	SETI ("dbg.glibc.fc_offset", 0x00240, "First chunk offset from brk_start");
+	SETI ("dbg.glibc.fc_offset", 0x00280, "First chunk offset from brk_start");
 #else
 	SETI ("dbg.glibc.ma_offset", 0x1bb000, "Main_arena offset from his symbol");
 	SETI ("dbg.glibc.fc_offset", 0x148, "First chunk offset from brk_start");
@@ -2966,6 +2973,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETBPREF ("asm.instr", "true", "Display the disassembled instruction");
 	SETBPREF ("asm.meta", "true", "Display the code/data/format conversions in disasm");
 	SETBPREF ("asm.bytes", "true", "Display the bytes of each instruction");
+	SETBPREF ("asm.bytes.right", "false", "Display the bytes at the right of the disassembly");
 	SETI ("asm.types", 1, "Display the fcn types in calls (0=no,1=quiet,2=verbose)");
 	SETBPREF ("asm.midcursor", "false", "Cursor in visual disasm mode breaks the instruction");
 	SETBPREF ("asm.cmt.flgrefs", "true", "Show comment flags associated to branch reference");
@@ -3044,7 +3052,8 @@ R_API int r_core_config_init(RCore *core) {
 	SETCB ("asm.tailsub", "false", &cb_asmtailsub, "Replace addresses with prefix .. syntax");
 	SETBPREF ("asm.middle", "false", "Allow disassembling jumps in the middle of an instruction");
 	SETBPREF ("asm.noisy", "true", "Show comments considered noisy but possibly useful");
-	SETBPREF ("asm.offset", "true", "Show offsets at disassembly");
+	SETBPREF ("asm.offset", "true", "Show offsets in disassembly");
+	SETBPREF ("hex.offset", "true", "Show offsets in hex-dump");
 	SETBPREF ("scr.square", "true", "Use square pixels or not");
 	SETCB ("scr.prompt.vi", "false", &cb_scr_vi, "Use vi mode for input prompt");
 	SETCB ("scr.prompt.mode", "false", &cb_scr_prompt_mode,  "Set prompt color based on vi mode");
@@ -3102,7 +3111,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETDESC (n, "Select assembly syntax");
 	SETOPTIONS (n, "att", "intel", "masm", "jz", "regnum", NULL);
 	SETI ("asm.nbytes", 6, "Number of bytes for each opcode at disassembly");
-	SETBPREF ("asm.bytespace", "false", "Separate hexadecimal bytes with a whitespace");
+	SETBPREF ("asm.bytes.space", "false", "Separate hexadecimal bytes with a whitespace");
 #if R_SYS_BITS == R_SYS_BITS_64
 	SETICB ("asm.bits", 64, &cb_asmbits, "Word size in bits at assembler");
 #else

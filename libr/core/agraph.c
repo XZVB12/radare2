@@ -795,7 +795,7 @@ static void minimize_crossings(const RAGraph *g) {
 		cross_changed = false;
 		max_changes--;
 
-		for (i = g->n_layers - 1; i >= 0; --i) {
+		for (i = g->n_layers - 1; i >= 0; i--) {
 			int rc = layer_sweep (g->graph, g->layers, g->n_layers, i, false);
 			if (rc == -1) {
 				return;
@@ -1452,7 +1452,7 @@ static void combine_sequences(const RAGraph *g, int l, const RGraphNode *bm, con
 	r_list_free (Rm);
 	r_list_free (Rp);
 
-	for (i = t - 2; i >= a; --i) {
+	for (i = t - 2; i >= a; i--) {
 		const RGraphNode *gv = g->layers[l].nodes[i];
 		RANode *av = get_anode (gv);
 		if (av && at) {
@@ -2414,7 +2414,6 @@ cleanup:
 /* build the RGraph inside the RAGraph g, starting from the Call Graph
  * information */
 static int get_cgnodes(RAGraph *g, RCore *core, RAnalFunction *fcn) {
-#if FCN_OLD
 	RAnalFunction *f = r_anal_get_fcn_in (core->anal, core->offset, 0);
 	RANode *node, *fcn_anode;
 	RListIter *iter;
@@ -2427,7 +2426,7 @@ static int get_cgnodes(RAGraph *g, RCore *core, RAnalFunction *fcn) {
 		fcn = f;
 	}
 
-	r_core_seek (core, f->addr, 1);
+	r_core_seek (core, f->addr, true);
 
 	char *title = get_title (fcn->addr);
 	fcn_anode = r_agraph_add_node (g, title, "");
@@ -2440,7 +2439,7 @@ static int get_cgnodes(RAGraph *g, RCore *core, RAnalFunction *fcn) {
 	fcn_anode->x = 10;
 	fcn_anode->y = 3;
 
-	refs = r_anal_fcn_get_refs (core->anal, fcn);
+	refs = r_anal_function_get_refs (fcn);
 	r_list_foreach (refs, iter, ref) {
 		title = get_title (ref->addr);
 		if (r_agraph_get_node (g, title) != NULL) {
@@ -2471,9 +2470,7 @@ static int get_cgnodes(RAGraph *g, RCore *core, RAnalFunction *fcn) {
 		r_agraph_add_edge (g, fcn_anode, node);
 	}
 	r_list_free (refs);
-#else
-	eprintf ("Must be sdbized\n");
-#endif
+
 	return true;
 }
 
@@ -3343,7 +3340,7 @@ static void agraph_update_title(RCore *core, RAGraph *g, RAnalFunction *fcn) {
 
 /* look for any change in the state of the graph
  * and update what's necessary */
-static int check_changes(RAGraph *g, int is_interactive, RCore *core, RAnalFunction *fcn) {
+static bool check_changes(RAGraph *g, int is_interactive, RCore *core, RAnalFunction *fcn) {
 	int oldpos[2] = {
 		0, 0
 	};
@@ -3374,19 +3371,18 @@ static int check_changes(RAGraph *g, int is_interactive, RCore *core, RAnalFunct
 	}
 	if (core) {
 		ut64 off = r_anal_get_bbaddr (core->anal, core->offset);
-		if (off == UT64_MAX) {
-			return false;
-		}
-		char *title = get_title (off);
-		RANode *cur_anode = get_anode (g->curnode);
-		if (fcn && ((is_interactive && !cur_anode) || (cur_anode && strcmp (cur_anode->title, title)))) {
-			g->update_seek_on = r_agraph_get_node (g, title);
-			if (g->update_seek_on) {
-				r_agraph_set_curnode (g, g->update_seek_on);
-				g->force_update_seek = true;
+		if (off != UT64_MAX) {
+			char *title = get_title (off);
+			RANode *cur_anode = get_anode (g->curnode);
+			if (fcn && ((is_interactive && !cur_anode) || (cur_anode && strcmp (cur_anode->title, title)))) {
+				g->update_seek_on = r_agraph_get_node (g, title);
+				if (g->update_seek_on) {
+					r_agraph_set_curnode (g, g->update_seek_on);
+					g->force_update_seek = true;
+				}
 			}
+			free (title);
 		}
-		free (title);
 		g->can->color = r_config_get_i (core->config, "scr.color");
 		g->hints = r_config_get_i (core->config, "graph.hints");
 	}
@@ -3413,7 +3409,7 @@ static int check_changes(RAGraph *g, int is_interactive, RCore *core, RAnalFunct
 
 static int agraph_print(RAGraph *g, int is_interactive, RCore *core, RAnalFunction *fcn) {
 	int h, w = r_cons_get_size (&h);
-	int ret = check_changes (g, is_interactive, core, fcn);
+	bool ret = check_changes (g, is_interactive, core, fcn);
 	if (!ret) {
 		return false;
 	}
@@ -3647,7 +3643,7 @@ static void agraph_sdb_init(const RAGraph *g) {
 R_API Sdb *r_agraph_get_sdb(RAGraph *g) {
 	g->need_update_dim = true;
 	g->need_set_layout = true;
-	check_changes (g, false, NULL, NULL);
+	(void)check_changes (g, false, NULL, NULL);
 	//remove_dummy_nodes (g);
 	return g->db;
 }
@@ -3942,11 +3938,11 @@ static void goto_asmqjmps(RAGraph *g, RCore *core) {
 		RANode *addr_node = r_agraph_get_node (g, title);
 		if (addr_node) {
 			r_agraph_set_curnode (g, addr_node);
-			r_core_seek (core, addr, 0);
+			r_core_seek (core, addr, false);
 			agraph_update_seek (g, addr_node, true);
 		} else {
 			r_io_sundo_push (core->io, core->offset, 0);
-			r_core_seek (core, addr, 0);
+			r_core_seek (core, addr, false);
 		}
 		free (title);
 	}
@@ -4139,7 +4135,7 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 	grd->g = g;
 	grd->fs = is_interactive == 1;
 	grd->core = core;
-	grd->follow_offset = _fcn ? false : true;
+	grd->follow_offset = _fcn == NULL;
 	grd->fcn = fcn != NULL? &fcn: NULL;
 	ret = agraph_refresh (grd);
 	if (!ret || is_interactive != 1) {
@@ -4200,14 +4196,20 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 			agraph_update_seek (g, get_anode (g->curnode), true);
 			// update scroll (with minor shift)
 			break;
+			// Those hardcoded keys are useful only for aegi, should add subcommand of ag to set key actions
+		case '1':
+			r_core_cmd0 (core, "so;.aeg*");
+			break;
+		case '2':
+			r_core_cmd0 (core, "so-1;.aeg*");
+			break;
 		case '=':
 		{         // TODO: edit
 			showcursor (core, true);
-			const char *buf = NULL;
 			const char *cmd = r_config_get (core->config, "cmd.gprompt");
 			r_line_set_prompt ("cmd.gprompt> ");
 			core->cons->line->contents = strdup (cmd);
-			buf = r_line_readline ();
+			const char *buf = r_line_readline ();
 			core->cons->line->contents = NULL;
 			r_config_set (core->config, "cmd.gprompt", buf);
 			showcursor (core, false);
@@ -4317,10 +4319,10 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 			}
 			ut64 old_off = core->offset;
 			ut64 off = r_anal_get_bbaddr (core->anal, core->offset);
-			r_core_seek (core, off, 0);
+			r_core_seek (core, off, false);
 			if ((key == 'x' && !r_core_visual_refs (core, true, true)) ||
 			    (key == 'X' && !r_core_visual_refs (core, false, true))) {
-				r_core_seek (core, old_off, 0);
+				r_core_seek (core, old_off, false);
 			}
 			break;
 		}
@@ -4437,7 +4439,7 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 			}
 			RIOUndos *undo = r_io_sundo (core->io, core->offset);
 			if (undo) {
-				r_core_seek (core, undo->off, 0);
+				r_core_seek (core, undo->off, false);
 			} else {
 				eprintf ("Cannot undo\n");
 			}
@@ -4453,7 +4455,7 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 			}
 			RIOUndos *undo = r_io_sundo_redo (core->io);
 			if (undo) {
-				r_core_seek (core, undo->off, 0);
+				r_core_seek (core, undo->off, false);
 			} else {
 				eprintf ("Cannot redo\n");
 			}
@@ -4664,7 +4666,7 @@ R_API int r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int 
 			  {
 				  RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, 0);
 				  if (fcn) {
-					  r_core_seek (core, fcn->addr, 0);
+					  r_core_seek (core, fcn->addr, false);
 				  }
 			  }
 			  agraph_update_seek (g, get_anode (g->curnode), true);

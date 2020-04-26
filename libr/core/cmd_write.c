@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2019 - pancake */
+/* radare - LGPL - Copyright 2009-2020 - pancake */
 
 #include "r_crypto.h"
 #include "r_config.h"
@@ -80,12 +80,12 @@ static const char *help_msg_wc[] = {
 };
 
 static const char *help_msg_we[] = {
-	"Usage", "", "write extend",
-	"wen", " <num>", "insert num null bytes at current offset",
-	"weN", " <addr> <len>", "insert bytes at address",
+	"Usage", "", "write extend # resize the file",
+	"wen", " <num>", "extend the underlying file inserting NUM null bytes at current offset",
+	"weN", " <addr> <len>", "extend current file and insert bytes at address",
 	"wes", " <addr>  <dist> <block_size>", "shift a blocksize left or write in the editor",
-	"wex", " <hex_bytes>", "insert bytes at current offset",
-	"weX", " <addr> <hex_bytes>", "insert bytes at address",
+	"wex", " <hex_bytes>", "insert bytes at current offset by extending the file",
+	"weX", " <addr> <hex_bytes>", "insert bytes at address by extending the file",
 	NULL
 };
 
@@ -149,7 +149,8 @@ static const char *help_msg_wf[] = {
 	"Usage:", "wf[fs] [-|args ..]", " Write from (file, swap, offset)",
 	"wf", " 10 20", "write 20 bytes from offset 10 into current seek",
 	"wff", " file [len]", "write contents of file into current offset",
-	"wfs", " 10 20", "swap 20 bytes betweet current offset and 10",
+	"wfs", " host:port [len]", "write from socket (tcp listen in port for N bytes)",
+	"wfx", " 10 20", "exchange 20 bytes betweet current offset and 10",
 	NULL
 };
 
@@ -381,19 +382,27 @@ static void cmd_write_op (RCore *core, const char *input) {
 				for (i = 0; ; i++) {
 					bits = ((ut64)1) << i;
 					const char *name = r_hash_name (bits);
-					if (!name || !*name) break;
+					if R_STR_ISEMPTY (name) {
+						break;
+					}
 					printf ("  %s\n", name);
 				}
 				eprintf ("Available Encoders/Decoders: \n");
-				// TODO: do not hardcode
-				eprintf ("  base64\n");
-				eprintf ("  base91\n");
-				eprintf ("  punycode\n");
+				for (i = 0; ; i++) {
+					bits = (1ULL) << i;
+					const char *name = r_crypto_codec_name ((const RCryptoSelector)bits);
+					if (R_STR_ISEMPTY (name)) {
+						break;
+					}
+					printf ("  %s\n", name);
+				}
 				eprintf ("Currently supported crypto algos:\n");
 				for (i = 0; ; i++) {
-					bits = ((ut64)1) << i;
-					const char *name = r_crypto_name (bits);
-					if (!name || !*name) break;
+					bits = (1ULL) << i;
+					const char *name = r_crypto_name ((const RCryptoSelector)bits);
+					if R_STR_ISEMPTY (name) {
+						break;
+					}
 					printf ("  %s\n", name);
 				}
 			}
@@ -405,7 +414,7 @@ static void cmd_write_op (RCore *core, const char *input) {
 		case 'D': // "wopD"
 			{
 				char *sp = strchr (input, ' ');
-				len = (int)(sp)?  r_num_math (core->num, sp + 1): core->blocksize;
+				len = sp?  r_num_math (core->num, sp + 1): core->blocksize;
 			}
 			if (len > 0) {
 				/* XXX This seems to fail at generating long patterns (wopD 512K) */
@@ -527,7 +536,7 @@ static void cmd_write_value (RCore *core, const char *input) {
 
 static bool cmd_wff(RCore *core, const char *input) {
 	ut8 *buf;
-	int size;
+	size_t size;
 	// XXX: file names cannot contain spaces
 	const char *arg = input + ((input[1] == ' ') ? 2 : 1);
 	int wseek = r_config_get_i (core->config, "cfg.wseek");
@@ -553,8 +562,8 @@ static bool cmd_wff(RCore *core, const char *input) {
 	}
 	if ((buf = (ut8*) r_file_slurp (a, &size))) {
 		int u_offset = 0;
-		int u_size = r_num_math (core->num, p);
-		if (u_size < 1) u_size = size;
+		ut64 u_size = r_num_math (core->num, p);
+		if (u_size < 1) u_size = (ut64)size;
 		if (p) {
 			*p++ = 0;
 			u_offset = r_num_math (core->num, p);
@@ -565,7 +574,7 @@ static bool cmd_wff(RCore *core, const char *input) {
 			}
 		}
 		r_io_use_fd (core->io, core->file->fd);
-		if (!r_io_write_at (core->io, core->offset, buf + u_offset, u_size)) {
+		if (!r_io_write_at (core->io, core->offset, buf + u_offset, (int)u_size)) {
 			eprintf ("r_io_write_at failed at 0x%08"PFMT64x"\n", core->offset);
 		}
 		WSEEK (core, size);
@@ -598,7 +607,7 @@ static bool ioMemcpy (RCore *core, ut64 dst, ut64 src, int len) {
 	return ret;
 }
 
-static bool cmd_wfs(RCore *core, const char *input) {
+static bool cmd_wfx(RCore *core, const char *input) {
 	char * args = r_str_trim_dup (input + 1);
 	char *arg = strchr (args, ' ');
 	int len = core->blocksize;
@@ -620,12 +629,74 @@ static bool cmd_wfs(RCore *core, const char *input) {
 					eprintf ("Failed to write at 0x%08"PFMT64x"\n", src);
 				}
 			} else {
-				eprintf ("cmd_wfs: failed to read at 0x%08"PFMT64x"\n", dst);
+				eprintf ("cmd_wfx: failed to read at 0x%08"PFMT64x"\n", dst);
 			}
 			free (buf);
 		}
 	}
 	free (args);
+	return true;
+}
+
+static bool cmd_wfs(RCore *core, const char *input) {
+	char *str = strdup (input);
+	if (str[1] != ' ') {
+		eprintf ("Usage wfs host:port [sz]\n");
+		free (str);
+		return false;
+	}
+	ut64 addr = 0;
+	char *host = str + 2;
+	char *port = strchr (host, ':');
+	if (!port) {
+		eprintf ("Usage wfs host:port [sz]\n");
+		free (str);
+		return false;
+	}
+	ut64 sz = core->blocksize;
+	*port ++= 0;
+	char *space = strchr (port, ' ');
+	if (space) {
+		*space++ = 0;
+		sz = r_num_math (core->num, space);
+		addr = core->offset;
+	}
+	ut8 *buf = calloc (1, sz);
+	if (!buf) {
+		free (str);
+		return false;
+	}
+	r_io_read_at (core->io, addr, buf, sz);
+	RSocket *s = r_socket_new (false);
+	if (!r_socket_listen (s, port, NULL)) {
+		eprintf ("Cannot listen on port %s\n", port);
+		r_socket_free (s);
+		free (str);
+		free (buf);
+		return false;
+	}
+	int done = 0;
+	RSocket *c = r_socket_accept (s);
+	if (c) {
+		eprintf ("Receiving data from client...\n");
+		while (done < sz) {
+			int rc = r_socket_read (c, buf + done, sz - done);
+			if (rc < 1) {
+				eprintf ("oops\n");
+				break;
+			}
+			done += rc;
+		}
+		r_socket_free (c);
+		if (r_io_write_at (core->io, core->offset, buf, done)) {
+			eprintf ("Written %d bytes\n", done);
+		} else {
+			eprintf ("Cannot write\n");
+		}
+	}
+	r_socket_free (s);
+	free (buf);
+	free (str);
 	return true;
 }
 
@@ -640,6 +711,9 @@ static bool cmd_wf(RCore *core, const char *input) {
 	}
 	if (input[1] == 's') { // "wfs"
 		return cmd_wfs (core, input + 1);
+	}
+	if (input[1] == 'x') { // "wfx"
+		return cmd_wfx (core, input + 1);
 	}
 	if (input[1] == 'f') { // "wff"
 		return cmd_wff (core, input + 1);
@@ -879,13 +953,21 @@ static int cmd_write(void *data, const char *input) {
 		switch (input[1]) {
 		case 'n': // "wen"
 			if (input[2] == ' ') {
-				len = *input ? r_num_math (core->num, input+3) : 0;
+				len = *input ? r_num_math (core->num, input + 3) : 0;
 				if (len > 0) {
 					const ut64 cur_off = core->offset;
 					cmd_suc = r_core_extend_at (core, core->offset, len);
-					core->offset = cur_off;
-					r_core_block_read (core);
+					if (cmd_suc) {
+						core->offset = cur_off;
+						r_core_block_read (core);
+					} else {
+						eprintf ("r_io_extend failed\n");
+						cmd_suc = true;
+					}
 				}
+			} else {
+				eprintf ("Usage: wen [len]\n");
+				cmd_suc = true;
 			}
 			break;
 		case 'N': // "weN"
@@ -899,9 +981,13 @@ static int cmd_write(void *data, const char *input) {
 				if (len > 0){
 					ut64 cur_off = core->offset;
 					cmd_suc = r_core_extend_at (core, addr, len);
-					r_core_seek (core, cur_off, 1);
-					core->offset = addr;
-					r_core_block_read (core);
+					if (cmd_suc) {
+						r_core_seek (core, cur_off, true);
+						core->offset = addr;
+						r_core_block_read (core);
+					} else {
+						eprintf ("r_io_extend failed\n");
+					}
 				}
 				cmd_suc = true;
 			}
@@ -948,7 +1034,7 @@ static int cmd_write(void *data, const char *input) {
 				b_size = p && *p ? r_num_math (core->num, p) : 0;
 				if (dist != 0){
 					r_core_shift_block (core, addr, b_size, dist);
-					r_core_seek (core, addr, 1);
+					r_core_seek (core, addr, true);
 					cmd_suc = true;
 				}
 			}
@@ -970,6 +1056,8 @@ static int cmd_write(void *data, const char *input) {
 						if (!r_core_write_at (core, addr, bytes, len)) {
 							cmd_write_fail (core);
 						}
+					} else {
+						eprintf ("r_io_extend failed\n");
 					}
 					core->offset = addr;
 					r_core_block_read (core);

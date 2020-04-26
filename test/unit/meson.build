@@ -1,14 +1,17 @@
 
-if get_option('build_tests')
+if get_option('enable_tests')
   tests = [
     'addr_interval',
     'anal_block',
     'anal_function',
     'anal_hints',
+    'anal_var',
+    'anal_xrefs',
     'base64',
     'bin',
     'bitmap',
     'buf',
+    'cmd',
     'cons',
     'contrbtree',
     'debruijn',

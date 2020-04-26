@@ -112,7 +112,7 @@ R_API bool r_meta_set_string(RAnal *a, int type, ut64 addr, const char *s) {
 
 	snprintf (key, sizeof (key)-1, "meta.%c.0x%"PFMT64x, type, addr);
 	size = sdb_array_get_num (DB, key, 0, 0);
-	if (!size) {
+	if (!size && s) {
 		size = strlen (s);
 		meta_inrange_add (a, addr, size);
 		ret = true;
@@ -141,30 +141,6 @@ R_API bool r_meta_set_string(RAnal *a, int type, ut64 addr, const char *s) {
 	return ret;
 }
 
-// XXX very similar to set_string
-R_API bool r_meta_set_var_comment(RAnal *a, int type, ut64 idx, ut64 addr, const char *s) {
-	char key[100], val[2048], *e_str;
-	bool ret;
-	ut64 size;
-	const char *space = r_spaces_current_name (&a->meta_spaces);
-	meta_type_add (a, type, addr);
-
-	snprintf (key, sizeof (key)-1, "meta.%c.0x%"PFMT64x".0x%"PFMT64x, type, addr, idx);
-	size = sdb_array_get_num (DB, key, 0, 0);
-	if (!size) {
-		size = strlen (s);
-		meta_inrange_add (a, addr, size);
-		ret = true;
-	} else {
-		ret = false;
-	}
-	e_str = sdb_encode ((const void*)s, -1);
-	snprintf (val, sizeof (val)-1, "%d,%s,%s", (int)size, space, e_str);
-	sdb_set (DB, key, val, 0);
-	free ((void*)e_str);
-	return ret;
-}
-
 R_API char *r_meta_get_string(RAnal *a, int type, ut64 addr) {
 	char key[100];
 	const char *k, *p, *p2, *p3;
@@ -190,26 +166,6 @@ R_API char *r_meta_get_string(RAnal *a, int type, ut64 addr) {
 		}
 	}
 	return (char *)sdb_decode (k, NULL);
-}
-
-R_API char *r_meta_get_var_comment (RAnal *a, int type, ut64 idx, ut64 addr) {
-	char key[100];
-	const char *k, *p, *p2;
-	snprintf (key, sizeof (key) - 1, "meta.%c.0x%"PFMT64x".0x%"PFMT64x, type, addr, idx);
-	k = sdb_const_get (DB, key, NULL);
-	if (!k) {
-		return NULL;
-	}
-	p = strchr (k, SDB_RS);
-	if (!p) {
-		return NULL;
-	}
-	k = p + 1;
-	p2 = strchr (k, SDB_RS);
-	if (!p2) {
-		return (char *)sdb_decode (k, NULL);
-	}
-	return (char *)sdb_decode (p2+1, NULL);
 }
 
 static bool mustDeleteMetaEntry(RAnal *a, ut64 addr) {
@@ -305,13 +261,6 @@ R_API int r_meta_del(RAnal *a, int type, ut64 addr, ut64 size) {
 		meta_inrange_del (a, addr, size);
 	}
 	return false;
-}
-
-
-R_API int r_meta_var_comment_del(RAnal *a, int type, ut64 idx, ut64 addr) {
-	char *key = r_str_newf ("meta.%c.0x%"PFMT64x"0x%"PFMT64x, type, addr, idx);
-	sdb_unset (DB, key, 0);
-	return 0;
 }
 
 R_API int r_meta_cleanup(RAnal *a, ut64 from, ut64 to) {
@@ -1029,4 +978,12 @@ R_API int r_meta_space_count_for(RAnal *a, const RSpace *space) {
 	myMetaUser mu = { .ctx = space };
 	r_meta_list_cb (a, R_META_TYPE_ANY, 0, meta_count_cb, &mu, UT64_MAX);
 	return mu.count;
+}
+
+R_API void r_meta_set_data_at(RAnal *a, ut64 addr, ut64 wordsz) {
+	char val[0x10];
+	if (snprintf (val, sizeof (val), "%"PFMT64u, wordsz) < 1) {
+		return;
+	}
+	r_meta_add (a, R_META_TYPE_DATA, addr, addr + wordsz, val);
 }

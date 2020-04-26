@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2009-2019 - pancake, nibble, dso */
+/* radare2 - LGPL - Copyright 2009-2020 - pancake, nibble, dso */
 
 #include <r_bin.h>
 #include <r_types.h>
@@ -280,6 +280,8 @@ R_API bool r_bin_open_buf(RBin *bin, RBuffer *buf, RBinOptions *opt) {
 		}
 	}
 	if (!bf) {
+		// Uncomment for this speedup: 20s vs 22s
+		// RBuffer *buf = r_buf_new_slurp (bin->file);
 		bf = r_bin_file_new_from_buffer (bin, bin->file, buf, bin->rawstr,
 			opt->baseaddr, opt->loadaddr, opt->fd, opt->pluginname);
 		if (!bf) {
@@ -1205,10 +1207,10 @@ R_API RBuffer *r_bin_package(RBin *bin, const char *type, const char *file, RLis
 		int off = 12;
 		int item = 0;
 		r_list_foreach (files, iter, f) {
-			int f_len = 0;
+			size_t f_len = 0;
 			ut8 *f_buf = (ut8 *)r_file_slurp (f, &f_len);
-			if (f_buf && f_len >= 0) {
-				eprintf ("ADD %s %d\n", f, f_len);
+			if (f_buf) {
+				eprintf ("ADD %s %"PFMT64u"\n", f, (ut64)f_len);
 			} else {
 				eprintf ("Cannot open %s\n", f);
 				free (f_buf);

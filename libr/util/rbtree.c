@@ -255,15 +255,15 @@ R_API bool r_rbtree_aug_insert(RBNode **root, void *data, RBNode *node, RBCompar
 
 // returns true if the sum has been updated, false if node has not been found
 R_API bool r_rbtree_aug_update_sum(RBNode *root, void *data, RBNode *node, RBComparator cmp, void *cmp_user, RBNodeSum sum) {
-	int dep = 0;
+	size_t dep = 0;
 	RBNode *path[R_RBTREE_MAX_HEIGHT];
 	RBNode *cur = root;
 	for (;;) {
-		if (dep >= R_RBTREE_MAX_HEIGHT) {
-			eprintf ("Too deep tree\n");
+		if (!cur) {
 			return false;
 		}
-		if (!cur) {
+		if (dep >= R_RBTREE_MAX_HEIGHT) {
+			eprintf ("Too deep tree\n");
 			return false;
 		}
 		path[dep] = cur;
@@ -271,13 +271,8 @@ R_API bool r_rbtree_aug_update_sum(RBNode *root, void *data, RBNode *node, RBCom
 		if (cur == node) {
 			break;
 		}
-
 		int d = cmp (data, cur, cmp_user);
-		if (d < 0) {
-			cur = cur->child[0];
-		} else {
-			cur = cur->child[1];
-		}
+		cur = cur->child[(d < 0)? 0: 1];
 	}
 
 	for (; dep > 0; dep--) {
@@ -480,7 +475,10 @@ R_API bool r_rbtree_cont_delete(RContRBTree *tree, void *data, RContRBCmp cmp, v
 }
 
 R_API void *r_rbtree_cont_find(RContRBTree *tree, void *data, RContRBCmp cmp, void *user) {
-	r_return_val_if_fail (tree && cmp && tree->root, NULL);
+	r_return_val_if_fail (tree && cmp, NULL);
+	if (!tree->root) {
+		return NULL;
+	}
 	RCRBCmpWrap cmp_wrap = { cmp, NULL, user };
 	// RBNode search_node = tree->root->node;
 	RBNode *result_node = r_rbtree_find (&tree->root->node, data, cont_rbtree_search_cmp_wrapper, &cmp_wrap);

@@ -96,7 +96,7 @@ static RList *__refs(RCore *core, ut64 addr) {
 	if (!fcn) {
 		return r;
 	}
-	RList *refs = r_anal_fcn_get_refs (core->anal, fcn);
+	RList *refs = r_anal_function_get_refs (fcn);
 	r_list_foreach (refs, iter, ref) {
 		if (ref->type != 'C') {
 			continue;
@@ -323,7 +323,7 @@ R_API int r_core_visual_view_graph(RCore *core) {
 		case '\n':
 			{
 				RCoreVisualViewGraphItem *item = r_list_get_n (status.mainCol, status.cur);
-				r_core_seek (core, item->addr, 1);
+				r_core_seek (core, item->addr, true);
 			}
 			return true;
 			break;

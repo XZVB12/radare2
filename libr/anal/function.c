@@ -52,16 +52,14 @@ static bool __fcn_exists(RAnal *anal, const char *name, ut64 addr) {
 	return false;
 }
 
+R_IPI void r_anal_var_free(RAnalVar *av);
+
 R_API RAnalFunction *r_anal_function_new(RAnal *anal) {
 	RAnalFunction *fcn = R_NEW0 (RAnalFunction);
 	if (!fcn) {
 		return NULL;
 	}
 	fcn->anal = anal;
-	/* Function qualifier: static/volatile/inline/naked/virtual */
-	fcn->fmod = R_ANAL_FQUALIFIER_NONE;
-	/* Function calling convention: cdecl/stdcall/fastcall/etc */
-	/* Function attributes: weak/noreturn/format/etc */
 	fcn->addr = UT64_MAX;
 	fcn->cc = r_str_constpool_get (&anal->constpool, r_anal_cc_default (anal));
 	fcn->bits = anal->bits;
@@ -71,6 +69,8 @@ R_API RAnalFunction *r_anal_function_new(RAnal *anal) {
 	fcn->bp_frame = true;
 	fcn->is_noreturn = false;
 	fcn->meta._min = UT64_MAX;
+	r_pvector_init (&fcn->vars, NULL);
+	fcn->inst_vars = ht_up_new0 ();
 	return fcn;
 }
 
@@ -89,16 +89,21 @@ R_API void r_anal_function_free(void *_fcn) {
 	r_list_free (fcn->bbs);
 
 	RAnal *anal = fcn->anal;
-	ht_up_delete (anal->ht_addr_fun, fcn->addr);
-	ht_pp_delete (anal->ht_name_fun, fcn->name);
+	if (ht_up_find (anal->ht_addr_fun, fcn->addr, NULL) == _fcn) {
+		ht_up_delete (anal->ht_addr_fun, fcn->addr);
+	}
+	if (ht_pp_find (anal->ht_name_fun, fcn->name, NULL) == _fcn) {
+		ht_pp_delete (anal->ht_name_fun, fcn->name);
+	}
+
+	ht_up_free (fcn->inst_vars);
+	fcn->inst_vars = NULL;
+	r_pvector_clear (&fcn->vars);
 
 	free (fcn->name);
-	free (fcn->attr);
-	r_list_free (fcn->fcn_locs);
 	fcn->bbs = NULL;
 	free (fcn->fingerprint);
 	r_anal_diff_free (fcn->diff);
-	free (fcn->args);
 	free (fcn);
 }
 
@@ -112,6 +117,7 @@ R_API bool r_anal_add_function(RAnal *anal, RAnalFunction *fcn) {
 	if (anal->flg_fcn_set) {
 		anal->flg_fcn_set (anal->flb.f, fcn->name, fcn->addr, r_anal_function_size_from_entry (fcn));
 	}
+	fcn->is_noreturn = r_anal_noreturn_at_addr (anal, fcn->addr);
 	r_list_append (anal->fcns, fcn);
 	ht_pp_insert (anal->ht_name_fun, fcn->name, fcn);
 	ht_up_insert (anal->ht_addr_fun, fcn->addr, fcn);
@@ -165,6 +171,17 @@ R_API RAnalFunction *r_anal_get_function_at(RAnal *anal, ut64 addr) {
 	return NULL;
 }
 
+typedef struct {
+	HtUP *inst_vars_new;
+	st64 delta;
+} InstVarsRelocateCtx;
+
+static bool inst_vars_relocate_cb(void *user, const ut64 k, const void *v) {
+	InstVarsRelocateCtx *ctx = user;
+	ht_up_insert (ctx->inst_vars_new, k - ctx->delta, (void *)v);
+	return true;
+}
+
 R_API bool r_anal_function_relocate(RAnalFunction *fcn, ut64 addr) {
 	if (fcn->addr == addr) {
 		return true;
@@ -173,6 +190,27 @@ R_API bool r_anal_function_relocate(RAnalFunction *fcn, ut64 addr) {
 		return false;
 	}
 	ht_up_delete (fcn->anal->ht_addr_fun, fcn->addr);
+
+	// relocate the var accesses (their addrs are relative to the function addr)
+	st64 delta = (st64)addr - (st64)fcn->addr;
+	void **it;
+	r_pvector_foreach (&fcn->vars, it) {
+		RAnalVar *var = *it;
+		RAnalVarAccess *acc;
+		r_vector_foreach (&var->accesses, acc) {
+			acc->offset -= delta;
+		}
+	}
+	InstVarsRelocateCtx ctx = {
+		.inst_vars_new  = ht_up_new0 (),
+		.delta = delta
+	};
+	if (ctx.inst_vars_new) {
+		ht_up_foreach (fcn->inst_vars, inst_vars_relocate_cb, &ctx);
+		ht_up_free (fcn->inst_vars);
+		fcn->inst_vars = ctx.inst_vars_new;
+	}
+
 	fcn->addr = addr;
 	ht_up_insert (fcn->anal->ht_addr_fun, addr, fcn);
 	return true;
@@ -278,18 +316,12 @@ R_API ut64 r_anal_function_size_from_entry(RAnalFunction *fcn) {
 }
 
 R_API ut64 r_anal_function_realsize(const RAnalFunction *fcn) {
-	RListIter *iter, *fiter;
+	RListIter *iter;
 	RAnalBlock *bb;
-	RAnalFunction *f;
 	ut64 sz = 0;
 	if (!sz) {
 		r_list_foreach (fcn->bbs, iter, bb) {
 			sz += bb->size;
-		}
-		r_list_foreach (fcn->fcn_locs, fiter, f) {
-			r_list_foreach (f->bbs, iter, bb) {
-				sz += bb->size;
-			}
 		}
 	}
 	return sz;

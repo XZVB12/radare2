@@ -647,9 +647,9 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 			RIOMap *m = r_io_map_get (core->io, from);
 			int rwx = m? m->perm: part->map->perm;
 #else
-		RIOMap *map;
-		SdbListIter *iter;
-		ls_foreach  (core->io->maps, iter, map) {
+		void **it;
+		r_pvector_foreach (&core->io->maps, it) {
+			RIOMap *map = *it;
 			ut64 from = r_itv_begin (map->itv);
 			ut64 to = r_itv_end (map->itv);
 			int rwx = map->perm;
@@ -679,9 +679,9 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 		int mask = (mode[len - 1] == '.')? r_str_rwx (mode + len): 0;
 		// bool only = (bool)(size_t)strstr (mode, ".only");
 
-		SdbListIter *iter;
-		RIOMap *map;
-		ls_foreach  (core->io->maps, iter, map) {
+		void **it;
+		r_pvector_foreach (&core->io->maps, it) {
+			RIOMap *map = *it;
 			ut64 from = r_itv_begin (map->itv);
 			//ut64 to = r_itv_end (map->itv);
 			int rwx = map->perm;
@@ -766,10 +766,10 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 				to = R_MAX (to, addr + size);
 			}
 			if (from == UT64_MAX) {
-				SdbListIter *iter;
-				RIOMap *map;
 				int mask = 1;
-				ls_foreach  (core->io->maps, iter, map) {
+				void **it;
+				r_pvector_foreach (&core->io->maps, it) {
+					RIOMap *map = *it;
 					ut64 from = r_itv_begin (map->itv);
 					ut64 size = r_itv_size (map->itv);
 					int rwx = map->perm;
@@ -1895,7 +1895,7 @@ static void do_syscall_search(RCore *core, struct search_parameters *param) {
 		}
 	}
 beach:
-	r_core_seek (core, oldoff, 1);
+	r_core_seek (core, oldoff, true);
 	r_anal_esil_free (esil);
 	r_cons_break_pop ();
 	free (buf);
@@ -2318,11 +2318,6 @@ static void do_string_search(RCore *core, RInterval search_itv, struct search_pa
 		core->search->maxhits = 1;
 	}
 	if (core->search->n_kws > 0 || param->crypto_search) {
-		RSearchKeyword aeskw;
-		if (param->crypto_search) {
-			memset (&aeskw, 0, sizeof (aeskw));
-			aeskw.keyword_length = 31;
-		}
 		/* set callback */
 		/* TODO: handle last block of data */
 		/* TODO: handle ^C */
@@ -2391,17 +2386,14 @@ static void do_string_search(RCore *core, RInterval search_itv, struct search_pa
 				}
 				if (param->crypto_search) {
 					// TODO support backward search
-					int delta = 0;
+					int t = 0;
 					if (param->aes_search) {
-						delta = r_search_aes_update (core->search, at, buf, len);
+						t = r_search_aes_update (core->search, at, buf, len);
 					} else if (param->privkey_search) {
-						delta = r_search_privkey_update (core->search, at, buf, len);
+						t = r_search_privkey_update (core->search, at, buf, len);
 					}
-					if (delta != -1) {
-						int t = r_search_hit_new (core->search, &aeskw, at + delta);
-						if (!t || t > 1) {
-							break;
-						}
+					if (!t || t > 1) {
+						break;
 					}
 				} else {
 					(void)r_search_update (core->search, at, buf, len);
@@ -2612,9 +2604,9 @@ void _CbInRangeSearchV(RCore *core, ut64 from, ut64 to, int vsize, int count, vo
 	const char *cmdHit = r_config_get (core->config, "cmd.hit");
 	if (cmdHit && *cmdHit) {
 		ut64 addr = core->offset;
-		r_core_seek (core, from, 1);
+		r_core_seek (core, from, true);
 		r_core_cmd (core, cmdHit, 0);
-		r_core_seek (core, addr, 1);
+		r_core_seek (core, addr, true);
 	}
 }
 
@@ -2942,6 +2934,11 @@ static int cmd_search(void *data, const char *input) {
 	// {.addr = UT64_MAX, .size = 0} means search range is unspecified
 	RInterval search_itv = {search_from, search_to - search_from};
 	bool empty_search_itv = search_from == search_to && search_from != UT64_MAX;
+	if (empty_search_itv) {
+		eprintf ("WARNING from == to?\n");
+		ret = false;
+		goto beach;
+	}
 	// TODO full address cannot be represented, shrink 1 byte to [0, UT64_MAX)
 	if (search_from == UT64_MAX && search_to == UT64_MAX) {
 		search_itv.addr = 0;
@@ -2971,21 +2968,8 @@ static int cmd_search(void *data, const char *input) {
 	core->search->maxhits = r_config_get_i (core->config, "search.maxhits");
 	searchprefix = r_config_get (core->config, "search.prefix");
 	core->search->overlap = r_config_get_i (core->config, "search.overlap");
-	if (!core->io->va) {
-		RInterval itv = {0, r_io_size (core->io)};
-		if (!r_itv_overlap (search_itv, itv)) {
-			empty_search_itv = true;
-		} else {
-			search_itv = r_itv_intersect (search_itv, itv);
-		}
-	}
 	core->search->bckwrds = false;
 
-	if (empty_search_itv) {
-		eprintf ("WARNING from == to?\n");
-		ret = false;
-		goto beach;
-	}
 	/* Quick & dirty check for json output */
 	if (input[0] && (input[1] == 'j') && (input[0] != ' ')) {
 		param.outmode = R_MODE_JSON;
@@ -3139,13 +3123,13 @@ reread:
 					eprintf ("-- 0x%"PFMT64x" 0x%"PFMT64x"\n", map->itv.addr, r_itv_end (map->itv));
 					ut64 refptr = r_num_math (core->num, input + 2);
 					ut64 curseek = core->offset;
-					r_core_seek (core, map->itv.addr, 1);
+					r_core_seek (core, map->itv.addr, true);
 					char *arg = r_str_newf (" %"PFMT64d, r_itv_end (map->itv) - map->itv.addr);
 					char *trg = refptr? r_str_newf (" %"PFMT64d, refptr): strdup ("");
 					r_core_anal_esil (core, arg, trg);
 					free (arg);
 					free (trg);
-					r_core_seek (core, curseek, 1);
+					r_core_seek (core, curseek, true);
 				}
 			}
 			break;
@@ -3294,17 +3278,15 @@ reread:
 						eprintf ("Cannot allocate memory.\n");
 					}
 					ret = true;
-					goto beach;
 				} else {
 					eprintf ("Usage: /cc [hashname] [hexpairhashvalue]\n");
 					eprintf ("Usage: /CC to search ascii collisions\n");
-					goto beach;
 				}
 				free (s);
 				goto beach;
 			}
 			break;
-		case 'd': // "Cd"
+		case 'd': // "cd"
 			{
 				param.crypto_search = false;
 				RSearchKeyword *kw;
@@ -3319,12 +3301,24 @@ reread:
 				}
 			}
 			break;
-		case 'a':
-			param.aes_search = true;
-			break;
-		case 'r':
-			param.privkey_search = true;
-			break;
+		case 'a': // "ca"
+			{
+				RSearchKeyword *kw;
+				kw = r_search_keyword_new_hexmask ("00", NULL);
+				r_search_kw_add (search, kw);
+				r_search_begin (core->search);
+				param.aes_search = true;
+				break;
+			}
+		case 'r': // "cr"
+			{
+				RSearchKeyword *kw;
+				kw = r_search_keyword_new_hexmask ("00", NULL);
+				r_search_kw_add (search, kw);
+				r_search_begin (core->search);
+				param.privkey_search = true;
+				break;
+			}
 		default: {
 			dosearch = false;
 			param.crypto_search = false;
@@ -3741,7 +3735,7 @@ reread:
 			char **args = r_str_argv (input + param_offset, &n_args);
 			ut8 *buf = NULL;
 			ut64 offset = 0;
-			int size;
+			size_t size;
 			buf = (ut8 *)r_file_slurp (args[0], &size);
 			if (!buf) {
 				eprintf ("Cannot open '%s'\n", args[0]);

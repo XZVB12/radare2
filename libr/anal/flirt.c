@@ -594,7 +594,7 @@ static int module_match_buffer(RAnal *anal, const RFlirtModule *module,
 						r_anal_function_delete (fcn);
 					}
 				}
-				r_anal_fcn_resize (anal, next_module_function, flirt_fcn_size);
+				r_anal_function_resize (next_module_function, flirt_fcn_size);
 				next_module_function_size = r_anal_function_linear_size (next_module_function);
 				r_anal_trim_jmprefs ((RAnal *)anal, next_module_function);
 			}
@@ -1226,7 +1226,8 @@ static void print_header(idasig_v5_t *header) {
 #endif
 
 static int parse_header(RBuffer *buf, idasig_v5_t *header) {
-	if (r_buf_read_at (buf, 0, header->magic, sizeof(header->magic)) != sizeof(header->magic)) {
+	r_buf_seek (buf, 0, R_BUF_SET);
+	if (r_buf_read (buf, header->magic, sizeof(header->magic)) != sizeof(header->magic)) {
 		return false;
 	}
 	if (r_buf_read (buf, &header->version, sizeof(header->version)) != sizeof(header->version)) {

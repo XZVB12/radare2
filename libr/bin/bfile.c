@@ -355,7 +355,7 @@ static int string_scan_range(RList *list, RBinFile *bf, int min,
 		pj_end (pj);
 		RIO *io = bin->iob.io;
 		if (io) {
-			io->cb_printf ("%s", pj_string (pj));
+			io->cb_printf ("%s\n", pj_string (pj));
 		}
 		pj_free (pj);
 	}
@@ -870,7 +870,9 @@ R_API RList *r_bin_file_compute_hashes(RBin *bin, ut64 limit) {
 	buf_len = r_io_desc_size (iod);
 	// By SLURP_LIMIT normally cannot compute ...
 	if (buf_len > limit) {
-		eprintf ("Warning: r_bin_file_hash: file exceeds bin.hashlimit\n");
+		if (bin->verbose) {
+			eprintf ("Warning: r_bin_file_hash: file exceeds bin.hashlimit\n");
+		}
 		return NULL;
 	}
 	const size_t blocksize = 64000;
@@ -969,7 +971,7 @@ R_IPI RBinClass *r_bin_class_new(const char *name, const char *super, int view) 
 }
 
 R_IPI void r_bin_class_free(RBinClass *k) {
-	if (k) {
+	if (k && k->name) {
 		free (k->name);
 		free (k->super);
 		r_list_free (k->methods);
