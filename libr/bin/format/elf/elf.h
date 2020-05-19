@@ -72,7 +72,7 @@ typedef struct r_bin_elf_string_t {
 	int last;
 } RBinElfString;
 
-typedef struct r_bin_elf_dynamic_info {
+typedef struct Elf_(r_bin_elf_dynamic_info) {
 	Elf_(Xword) dt_pltrelsz;
 	Elf_(Addr) dt_pltgot;
 	Elf_(Addr) dt_hash;
@@ -89,6 +89,11 @@ typedef struct r_bin_elf_dynamic_info {
 	Elf_(Xword) dt_pltrel;
 	Elf_(Addr) dt_jmprel;
 	Elf_(Addr) dt_mips_pltgot;
+	bool dt_bind_now;
+	Elf_(Xword) dt_flags;
+	Elf_(Xword) dt_flags_1;
+	Elf_(Xword) dt_rpath;
+	Elf_(Xword) dt_runpath;
 } RBinElfDynamicInfo;
 
 typedef struct r_bin_elf_lib_t {
@@ -112,8 +117,6 @@ struct Elf_(r_bin_elf_obj_t) {
 	Elf_(Dyn) *dyn_buf;
 	int dyn_entries;
 	RBinElfDynamicInfo dyn_info;
-	RBinElfReloc *relocs;
-	ut32 reloc_num;
 
 	ut64 version_info[DT_VERSIONTAGNUM];
 
@@ -138,6 +141,8 @@ struct Elf_(r_bin_elf_obj_t) {
 	RBinElfSection *g_sections;
 	RBinElfSymbol *g_symbols;
 	RBinElfSymbol *g_imports;
+	RBinElfReloc *g_relocs;
+	ut32 g_reloc_num;
 	RBinElfSymbol *phdr_symbols;
 	RBinElfSymbol *phdr_imports;
 	HtUP *rel_cache;

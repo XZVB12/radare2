@@ -65,7 +65,8 @@ bool test_r_table_tostring(void) {
 	RTable *t = __table_test_data1 ();
 	char buf[BUF_LENGTH];
 
-	for (int i = 0; i < 4; i++) {
+	int i;
+	for (i = 0; i < 4; i++) {
 		char *s = r_table_tostring (t);
 		snprintf (buf, BUF_LENGTH, "%d-th call to r_table_tostring", i);
 		mu_assert_streq (s,
@@ -156,8 +157,6 @@ static void simple_merge(RTableRow *acc, RTableRow *new_row, int nth) {
 	RListIter *iter_rhs;
 
 	char *item_lhs;
-	char *item_rhs;
-	int tmp;
 
 	int i = 0;
 
@@ -166,7 +165,6 @@ static void simple_merge(RTableRow *acc, RTableRow *new_row, int nth) {
 		iter_lhs = iter_lhs->n, iter_rhs = iter_rhs->n) {
 
 		item_lhs = iter_lhs->data;
-		item_rhs = iter_rhs->data;
 
 		if (i != nth) {
 			if (!strcmp (item_lhs, "a")) {

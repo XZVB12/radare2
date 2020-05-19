@@ -889,7 +889,7 @@ static RList* patch_relocs(RBin *b) {
 	}
 	n_vaddr = g->itv.addr + g->itv.size;
 	//reserve at least that space
-	size = bin->reloc_num * 4;
+	size = bin->g_reloc_num * 4;
 	char *muri = r_str_newf ("malloc://%" PFMT64u, size);
 	RIODesc *gotr2desc = b->iob.open_at (io, muri, R_PERM_R, 0664, n_vaddr);
 	free (muri);
@@ -955,7 +955,7 @@ static void lookup_symbols(RBinFile *bf, RBinInfo *ret) {
 				break;
 			}
 			if (!strcmp (symbol->name, "_NSConcreteGlobalBlock")) {
-				ret->lang = !strcmp (ret->lang, "c++") ? "c++ blocks ext." : "c blocks ext.";
+				ret->lang = (ret->lang && !strcmp (ret->lang, "c++"))? "c++ blocks ext.": "c blocks ext.";
 			}
 			if (strstr (symbol->name, "__stack_chk_fail") || strstr (symbol->name, "__stack_smash_handler")) {
 				ret->has_canary = true;

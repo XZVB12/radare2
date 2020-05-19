@@ -35,17 +35,6 @@ R_LIB_VERSION_HEADER(r_anal);
    bb_has_ops=0 -> 350MB
  */
 
-/* meta */
-typedef struct r_anal_meta_item_t {
-	ut64 from;
-	ut64 to;
-	ut64 size;
-	int type;
-	int subtype;
-	char *str;
-	const RSpace *space;
-} RAnalMetaItem;
-
 typedef struct {
 	struct r_anal_t *anal;
 	int type;
@@ -215,6 +204,49 @@ enum {
 	R_ANAL_DIFF_TYPE_UNMATCH = 'u'
 };
 
+typedef struct r_anal_enum_case_t {
+	char *name;
+	const int val;
+} RAnalEnumCase;
+
+typedef struct r_anal_struct_member_t {
+	char *name;
+	char *type;
+	const int offset;
+} RAnalStructMember;
+
+typedef struct r_anal_union_member_t {
+	char *name;
+	char *type;
+} RAnalUnionMember;
+
+typedef enum {
+	R_ANAL_BASE_TYPE_KIND_STRUCT,
+	R_ANAL_BASE_TYPE_KIND_UNION,
+	R_ANAL_BASE_TYPE_KIND_ENUM,
+} RAnalBaseTypeKind;
+
+typedef struct r_anal_base_type_struct_t {
+	RVector/*<RAnalStructMember>*/ members;
+} RAnalBaseTypeStruct;
+
+typedef struct r_anal_base_type_union_t {
+	RVector/*<RAnalUnionMember>*/ members;
+} RAnalBaseTypeUnion;
+
+typedef struct r_anal_base_type_enum_t {
+	RVector/*<RAnalEnumCase*/ cases; // list of all the enum casessssss
+} RAnalBaseTypeEnum;
+
+typedef struct r_anal_base_type_t {
+	RAnalBaseTypeKind kind;
+	union {
+		RAnalBaseTypeStruct struct_data;
+		RAnalBaseTypeEnum enum_data;
+		RAnalBaseTypeUnion union_data;
+	};
+} RAnalBaseType;
+
 typedef struct r_anal_diff_t {
 	int type;
 	ut64 addr;
@@ -255,6 +287,7 @@ typedef struct r_anal_function_t {
 	int ninstr;
 	bool folded;
 	bool is_pure;
+	bool is_variadic;
 	bool has_changed; // true if function may have changed since last anaysis TODO: set this attribute where necessary
 	bool bp_frame;
 	bool is_noreturn; // true if function does not return
@@ -284,14 +317,7 @@ struct r_anal_type_t {
 	RList *content;
 };
 
-enum {
-	R_META_WHERE_PREV = -1,
-	R_META_WHERE_HERE = 0,
-	R_META_WHERE_NEXT = 1,
-};
-
-enum {
-	R_META_TYPE_NONE = 0,
+typedef enum {
 	R_META_TYPE_ANY = -1,
 	R_META_TYPE_DATA = 'd',
 	R_META_TYPE_CODE = 'c',
@@ -303,7 +329,15 @@ enum {
 	R_META_TYPE_RUN = 'r',
 	R_META_TYPE_HIGHLIGHT = 'H',
 	R_META_TYPE_VARTYPE = 't',
-};
+} RAnalMetaType;
+
+/* meta */
+typedef struct r_anal_meta_item_t {
+	RAnalMetaType type;
+	int subtype;
+	char *str;
+	const RSpace *space;
+} RAnalMetaItem;
 
 // anal
 typedef enum {
@@ -602,12 +636,10 @@ typedef struct r_anal_t {
 	RList *plugins;
 	Sdb *sdb_types;
 	Sdb *sdb_fmts;
-	Sdb *sdb_meta; // TODO: Future r_meta api
 	Sdb *sdb_zigns;
 	HtUP *dict_refs;
 	HtUP *dict_xrefs;
 	bool recursive_noreturn;
-	RSpaces meta_spaces;
 	RSpaces zign_spaces;
 	char *zign_path;
 	PrintfCallback cb_printf;
@@ -624,6 +656,8 @@ typedef struct r_anal_t {
 	RBTree/*<RAnalArchHintRecord>*/ arch_hints;
 	RBTree/*<RAnalArchBitsRecord>*/ bits_hints;
 	RHintCb hint_cbs;
+	RIntervalTree meta;
+	RSpaces meta_spaces;
 	Sdb *sdb_fcnsign; // OK
 	Sdb *sdb_cc; // calling conventions
 	Sdb *sdb_classes;
@@ -1102,7 +1136,7 @@ typedef struct r_anal_esil_t {
 	ut64 cur;	//used for carry-flagging and borrow-flagging
 	ut8 lastsz;	//in bits //used for signature-flag
 	/* native ops and custom ops */
-	Sdb *ops;
+	HtPP *ops;
 	char *current_opstr;
 	RIDStorage *sources;
 	SdbMini *interrupts;
@@ -1727,33 +1761,77 @@ R_API void r_anal_data_free (RAnalData *d);
 #include <r_cons.h>
 R_API char *r_anal_data_to_string(RAnalData *d, RConsPrintablePalette *pal);
 
-R_API void r_meta_free(RAnal *m);
-R_API RList *r_meta_find_list_in(RAnal *a, ut64 at, int type, int where);
-R_API void r_meta_space_unset_for(RAnal *a, const RSpace *space);
-R_API int r_meta_space_count_for(RAnal *a, const RSpace *space_name);
-R_API RList *r_meta_enumerate(RAnal *a, int type);
-R_API int r_meta_count(RAnal *m, int type, ut64 from, ut64 to);
-R_API char *r_meta_get_string(RAnal *m, int type, ut64 addr);
-R_API bool r_meta_set_string(RAnal *m, int type, ut64 addr, const char *s);
-R_API int r_meta_get_size(RAnal *a, int type);
-R_API int r_meta_del(RAnal *m, int type, ut64 from, ut64 size);
-R_API int r_meta_add(RAnal *m, int type, ut64 from, ut64 to, const char *str);
-R_API int r_meta_add_with_subtype(RAnal *m, int type, int subtype, ut64 from, ut64 to, const char *str);
-R_API RAnalMetaItem *r_meta_find(RAnal *m, ut64 off, int type, int where);
-R_API RAnalMetaItem *r_meta_find_any_except(RAnal *m, ut64 at, int type, int where);
-R_API RAnalMetaItem *r_meta_find_in(RAnal *m, ut64 off, int type, int where);
-R_API int r_meta_cleanup(RAnal *m, ut64 from, ut64 to);
-R_API const char *r_meta_type_to_string(int type);
-R_API RList *r_meta_enumerate(RAnal *a, int type);
-R_API int r_meta_list(RAnal *m, int type, int rad);
-R_API int r_meta_list_at(RAnal *m, int type, int rad, ut64 addr);
-R_API int r_meta_list_cb(RAnal *m, int type, int rad, SdbForeachCallback cb, void *user, ut64 addr);
-R_API void r_meta_list_offset(RAnal *m, ut64 addr, char input);
-R_API void r_meta_item_free(void *_item);
-R_API RAnalMetaItem *r_meta_item_new(int type);
-R_API bool r_meta_deserialize_val(RAnal *a, RAnalMetaItem *it, int type, ut64 from, const char *v);
-R_API void r_meta_print(RAnal *a, RAnalMetaItem *d, int rad, PJ *pj, bool show_full);
+/* meta
+ *
+ * Meta uses Condret's Klemmbaustein Priciple, i.e. intervals are defined inclusive/inclusive.
+ * A meta item from 0x42 to 0x42 has a size of 1. Items with size 0 do not exist.
+ * Meta items are allowed to overlap and the internal data structure allows for multiple meta items
+ * starting at the same address.
+ * Meta items are saved in an RIntervalTree. To access the interval of an item, use the members of RIntervalNode.
+ */
+
+static inline ut64 r_meta_item_size(ut64 start, ut64 end) {
+	// meta items use inclusive/inclusive intervals
+	return end - start + 1;
+}
+
+static inline ut64 r_meta_node_size(RIntervalNode *node) {
+	return r_meta_item_size (node->start, node->end);
+}
+
+// Set a meta item at addr with the given contents in the current space.
+// If there already exists an item with this type and space at addr (regardless of its size) it will be overwritten.
+R_API bool r_meta_set(RAnal *a, RAnalMetaType type, ut64 addr, ut64 size, const char *str);
+
+// Same as r_meta_set() but also sets the subtype.
+R_API bool r_meta_set_with_subtype(RAnal *m, RAnalMetaType type, int subtype, ut64 addr, ut64 size, const char *str);
+
+// Delete all meta items in the current space that intersect with the given interval.
+// If size == UT64_MAX, everything in the current space will be deleted.
+R_API void r_meta_del(RAnal *a, RAnalMetaType type, ut64 addr, ut64 size);
+
+// Same as r_meta_set() with a size of 1.
+R_API bool r_meta_set_string(RAnal *a, RAnalMetaType type, ut64 addr, const char *s);
+
+// Convenience function to get the str content of the item at addr with given type in the current space.
+R_API const char *r_meta_get_string(RAnal *a, RAnalMetaType type, ut64 addr);
+
+// Convenience function to add an R_META_TYPE_DATA item at the given addr in the current space.
 R_API void r_meta_set_data_at(RAnal *a, ut64 addr, ut64 wordsz);
+
+// Returns the item with given type that starts at addr in the current space or NULL. The size of this item  optionally returned through size.
+R_API RAnalMetaItem *r_meta_get_at(RAnal *a, ut64 addr, RAnalMetaType type, R_OUT R_NULLABLE ut64 *size);
+
+// Returns the node for one meta item with the given type that contains addr in the current space or NULL.
+// To get all the nodes, use r_meta_get_all_in().
+R_API RIntervalNode *r_meta_get_in(RAnal *a, ut64 addr, RAnalMetaType type);
+
+// Returns all nodes for items starting at the given address in the current space.
+R_API RPVector/*<RIntervalNode<RMetaItem> *>*/ *r_meta_get_all_at(RAnal *a, ut64 at);
+
+// Returns all nodes for items with the given type containing the given address in the current space.
+R_API RPVector/*<RIntervalNode<RMetaItem> *>*/ *r_meta_get_all_in(RAnal *a, ut64 at, RAnalMetaType type);
+
+// Returns all nodes for items with the given type intersecting the given interval in the current space.
+R_API RPVector/*<RIntervalNode<RMetaItem> *>*/ *r_meta_get_all_intersect(RAnal *a, ut64 start, ut64 size, RAnalMetaType type);
+
+// Delete all meta items in the given space
+R_API void r_meta_space_unset_for(RAnal *a, const RSpace *space);
+
+// Returns the number of meta items in the given space
+R_API int r_meta_space_count_for(RAnal *a, const RSpace *space);
+
+// Shift all meta items by the given delta, for rebasing between different memory layouts.
+R_API void r_meta_rebase(RAnal *anal, ut64 diff);
+
+// Calculate the total size covered by meta items of the given type.
+R_API ut64 r_meta_get_size(RAnal *a, RAnalMetaType type);
+
+R_API const char *r_meta_type_to_string(int type);
+R_API void r_meta_print(RAnal *a, RAnalMetaItem *d, ut64 start, ut64 size, int rad, PJ *pj, bool show_full);
+R_API void r_meta_print_list_all(RAnal *a, int type, int rad);
+R_API void r_meta_print_list_at(RAnal *a, ut64 addr, int rad);
+R_API void r_meta_print_list_in_function(RAnal *a, int type, int rad, ut64 addr);
 
 /* hints */
 
@@ -1885,10 +1963,12 @@ R_API void r_anal_rtti_msvc_print_base_class_descriptor(RVTableContext *context,
 R_API bool r_anal_rtti_msvc_print_at_vtable(RVTableContext *context, ut64 addr, int mode, bool strict);
 R_API void r_anal_rtti_msvc_recover_all(RVTableContext *vt_context, RList *vtables);
 
+R_API char *r_anal_rtti_itanium_demangle_class_name(RVTableContext *context, const char *name);
 R_API void r_anal_rtti_itanium_print_class_type_info(RVTableContext *context, ut64 addr, int mode);
 R_API void r_anal_rtti_itanium_print_si_class_type_info(RVTableContext *context, ut64 addr, int mode);
 R_API void r_anal_rtti_itanium_print_vmi_class_type_info(RVTableContext *context, ut64 addr, int mode);
-R_API void r_anal_rtti_itanium_print_at_vtable(RVTableContext *context, ut64 addr, int mode);
+R_API bool r_anal_rtti_itanium_print_at_vtable(RVTableContext *context, ut64 addr, int mode);
+R_API void r_anal_rtti_itanium_recover_all(RVTableContext *vt_context, RList *vtables);
 
 R_API char *r_anal_rtti_demangle_class_name(RAnal *anal, const char *name);
 R_API void r_anal_rtti_print_at_vtable(RAnal *anal, ut64 addr, int mode);
@@ -1968,9 +2048,10 @@ R_API RAnalEsilDFGNode *r_anal_esil_dfg_node_new (RAnalEsilDFG *edf, const char 
 R_API RAnalEsilDFG *r_anal_esil_dfg_new(RReg *regs);
 R_API void r_anal_esil_dfg_free(RAnalEsilDFG *dfg);
 R_API RAnalEsilDFG *r_anal_esil_dfg_expr(RAnal *anal, RAnalEsilDFG *dfg, const char *expr);
-R_API RStrBuf *r_anal_esil_dfg_filter (RAnalEsilDFG *dfg, const char *reg);
+R_API RStrBuf *r_anal_esil_dfg_filter(RAnalEsilDFG *dfg, const char *reg);
 R_API RStrBuf *r_anal_esil_dfg_filter_expr(RAnal *anal, const char *expr, const char *reg);
 R_API RList *r_anal_types_from_fcn(RAnal *anal, RAnalFunction *fcn);
+R_API RAnalBaseType *r_anal_get_base_type(RAnal *anal, const char *name);
 
 /* plugin pointers */
 extern RAnalPlugin r_anal_plugin_null;
@@ -2032,6 +2113,7 @@ extern RAnalPlugin r_anal_plugin_xap;
 extern RAnalPlugin r_anal_plugin_xcore_cs;
 extern RAnalPlugin r_anal_plugin_xtensa;
 extern RAnalPlugin r_anal_plugin_z80;
+extern RAnalPlugin r_anal_plugin_pyc;
 #ifdef __cplusplus
 }
 #endif

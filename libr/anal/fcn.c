@@ -422,8 +422,14 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 	};
 	bool is_arm = anal->cur->arch && !strncmp (anal->cur->arch, "arm", 3);
 	char tmp_buf[MAX_FLG_NAME_SIZE + 5] = "skip";
-	bool is_x86 = is_arm? false: anal->cur->arch && !strncmp (anal->cur->arch, "x86", 3);
+	bool is_x86 = is_arm ? false: anal->cur->arch && !strncmp (anal->cur->arch, "x86", 3);
+	bool is_amd64 = is_x86 ? fcn->cc && !strcmp (fcn->cc, "amd64") : false;
 	bool is_dalvik = is_x86? false: anal->cur->arch && !strncmp (anal->cur->arch, "dalvik", 6);
+	RRegItem *variadic_reg = NULL;
+	if (is_amd64) {
+		variadic_reg = r_reg_get (anal->reg, "rax", R_REG_TYPE_GPR);
+	}
+	bool has_variadic_reg = !!variadic_reg;
 
 	if (r_cons_is_breaked ()) {
 		return R_ANAL_RET_END;
@@ -817,7 +823,7 @@ repeat:
 		case R_ANAL_OP_TYPE_LOAD:
 			if (anal->opt.loads) {
 				if (anal->iob.is_valid_offset (anal->iob.io, op.ptr, 0)) {
-					r_meta_add (anal, R_META_TYPE_DATA, op.ptr, op.ptr + 4, "");
+					r_meta_set (anal, R_META_TYPE_DATA, op.ptr, 4, "");
 				}
 			}
 			break;
@@ -1164,6 +1170,17 @@ analopfinish:
 		if (is_arm && op.type != R_ANAL_OP_TYPE_MOV) {
 			last_is_mov_lr_pc = false;
 		}
+		if (has_variadic_reg && !fcn->is_variadic) {
+			bool dst_is_variadic = op.dst && op.dst->reg && op.dst->reg->offset == variadic_reg->offset;
+			bool op_is_cmp = (op.type == R_ANAL_OP_TYPE_CMP) || op.type == R_ANAL_OP_TYPE_ACMP;
+			if (dst_is_variadic && !op_is_cmp) {
+				has_variadic_reg = false;
+			} else if (op_is_cmp) {
+				if (op.src[0] && op.src[0]->reg && (op.dst->reg == op.src[0]->reg) && dst_is_variadic) {
+					fcn->is_variadic = true;
+				}
+			}
+		}
 	}
 beach:
 	r_anal_op_fini (&op);
@@ -1249,20 +1266,21 @@ R_API void r_anal_del_jmprefs(RAnal *anal, RAnalFunction *fcn) {
 
 /* Does NOT invalidate read-ahead cache. */
 R_API int r_anal_fcn(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int reftype) {
-	RListIter *iter;
-	RAnalMetaItem *meta;
-
-	RList *list = r_meta_find_list_in (anal, addr, -1, 4);
-	r_list_foreach (list, iter, meta) {
+	RPVector *metas = r_meta_get_all_in(anal, addr, R_META_TYPE_ANY);
+	void **it;
+	r_pvector_foreach (metas, it) {
+		RAnalMetaItem *meta = ((RIntervalNode *)*it)->data;
 		switch (meta->type) {
 		case R_META_TYPE_DATA:
 		case R_META_TYPE_STRING:
 		case R_META_TYPE_FORMAT:
-			r_list_free (list);
+			r_pvector_free (metas);
 			return 0;
+		default:
+			break;
 		}
 	}
-	r_list_free (list);
+	r_pvector_free (metas);
 	if (anal->opt.norevisit) {
 		if (!anal->visited) {
 			anal->visited = set_u_new ();
