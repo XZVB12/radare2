@@ -232,7 +232,7 @@ typedef struct r_debug_trace_t {
 	int dup;
 	char *addresses;
 	// TODO: add range here
-	Sdb *db;
+	HtPP *ht;
 } RDebugTrace;
 
 typedef struct r_debug_tracepoint_t {
@@ -321,6 +321,7 @@ typedef struct r_debug_t {
 	RNum *num;
 	REgg *egg;
 	bool verbose;
+	bool main_arena_resolved; /* is the main_arena resolved already? */
 } RDebug;
 
 typedef struct r_debug_desc_plugin_t {
@@ -518,7 +519,7 @@ R_API int r_debug_desc_list(RDebug *dbg, int rad);
 
 /* registers */
 R_API int r_debug_reg_sync(RDebug *dbg, int type, int write);
-R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char *use_color);
+R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char *use_color);
 R_API int r_debug_reg_set(RDebug *dbg, const char *name, ut64 num);
 R_API ut64 r_debug_reg_get(RDebug *dbg, const char *name);
 R_API ut64 r_debug_reg_get_err(RDebug *dbg, const char *name, int *err, utX *value);

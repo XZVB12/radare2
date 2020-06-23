@@ -274,6 +274,13 @@ static bool cb_analvars(void *user, void *data) {
         return true;
 }
 
+static bool cb_analvars_stackname(void *user, void *data) {
+	RCore *core = (RCore *)user;
+	RConfigNode *node = (RConfigNode *)data;
+	core->anal->opt.varname_stack = node->i_value;
+	return true;
+}
+
 static bool cb_anal_nonull(void *user, void *data) {
         RCore *core = (RCore*) user;
         RConfigNode *node = (RConfigNode*) data;
@@ -923,8 +930,11 @@ static bool cb_binstrenc (void *user, void *data) {
 			free (node->value);
 			node->value = strdup (pair->name);
 			free (enc);
-			free (core->bin->strenc);
-			core->bin->strenc = !strcmp (node->value, "guess") ? NULL : strdup (node->value);
+			if (core->bin) {
+				free (core->bin->strenc);
+				core->bin->strenc = !strcmp (node->value, "guess") ? NULL : strdup (node->value);
+				r_bin_reset_strings (core->bin);
+			}
 			return true;
 		}
 	}
@@ -2547,7 +2557,7 @@ static bool cb_dirpfx(RCore *core, RConfigNode *node) {
 static bool cb_anal_roregs(RCore *core, RConfigNode *node) {
 	if (core && core->anal && core->anal->reg) {
 		r_list_free (core->anal->reg->roregs);
-		core->anal->reg->roregs = r_str_split_duplist (node->value, ",");
+		core->anal->reg->roregs = r_str_split_duplist (node->value, ",", true);
 	}
 	return true;
 }
@@ -2910,6 +2920,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETBPREF ("anal.types.verbose", "false", "Verbose output from type analysis");
 	SETBPREF ("anal.types.constraint", "false", "Enable constraint types analysis for variables");
 	SETCB ("anal.vars", "true", &cb_analvars, "Analyze local variables and arguments");
+	SETCB ("anal.vars.stackname", "false", &cb_analvars_stackname, "Name variables based on their offset on the stack");
 	SETBPREF ("anal.vinfun", "true",  "Search values in functions (aav) (false by default to only find on non-code)");
 	SETBPREF ("anal.vinfunrange", "false",  "Search values outside function ranges (requires anal.vinfun=false)\n");
 	SETCB ("anal.norevisit", "false", &cb_analnorevisit, "Do not visit function analysis twice (EXPERIMENTAL)");
