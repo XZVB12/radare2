@@ -20,6 +20,10 @@
 #  define FREEBSD_WITH_BACKTRACE
 # endif
 #endif
+#if defined(__HAIKU__)
+# include <kernel/image.h>
+# include <sys/param.h>
+#endif
 #include <sys/types.h>
 #include <r_types.h>
 #include <r_util.h>
@@ -28,7 +32,7 @@
 static char** env = NULL;
 
 #if (__linux__ && __GNU_LIBRARY__) || defined(NETBSD_WITH_BACKTRACE) || \
-  defined(FREEBSD_WITH_BACKTRACE) || __DragonFly__
+  defined(FREEBSD_WITH_BACKTRACE) || __DragonFly__ || __sun || __HAIKU__
 # include <execinfo.h>
 #endif
 #if __APPLE__
@@ -296,7 +300,7 @@ R_API char *r_sys_cmd_strf(const char *fmt, ...) {
 
 #if (__linux__ && __GNU_LIBRARY__) || (__APPLE__ && APPLE_WITH_BACKTRACE) || \
   defined(NETBSD_WITH_BACKTRACE) || defined(FREEBSD_WITH_BACKTRACE) || \
-  __DragonFly__
+  __DragonFly__ || __sun || __HAIKU__
 #define HAVE_BACKTRACE 1
 #endif
 
@@ -367,14 +371,12 @@ R_API int r_sys_clearenv(void) {
 #if __APPLE__ && !HAVE_ENVIRON
 	/* do nothing */
 	if (!env) {
-		env = r_sys_get_environ ();
+		r_sys_env_init ();
 		return 0;
 	}
-	if (env) {
-		char **e = env;
-		while (*e) {
-			*e++ = NULL;
-		}
+	char **e = env;
+	while (*e) {
+		*e++ = NULL;
 	}
 #else
 	if (!environ) {
@@ -1175,6 +1177,22 @@ R_API char *r_sys_pid_to_path(int pid) {
 	if (ret != 0) {
 		return NULL;
 	}
+#elif __HAIKU__
+	char pathbuf[MAXPATHLEN];
+	int32_t group = 0;
+	image_info ii;
+
+	while (get_next_image_info (0, &group, &ii) == B_OK) {
+		if (ii.type == B_APP_IMAGE) {
+			break;
+		}
+	}
+
+	if (ii.type == B_APP_IMAGE) {
+		r_str_ncpy (pathbuf, ii.name, MAXPATHLEN);
+	} else {
+		pathbuf[0] = '\0';
+	}
 #else
 	char buf[128], pathbuf[1024];
 	snprintf (buf, sizeof (buf), "/proc/%d/exe", pid);
@@ -1188,8 +1206,14 @@ R_API char *r_sys_pid_to_path(int pid) {
 #endif
 }
 
-// TODO: rename to r_sys_env_init()
-R_API char **r_sys_get_environ (void) {
+R_API void r_sys_env_init(void) {
+	char **envp = r_sys_get_environ ();
+	if (envp) {
+		r_sys_set_environ (envp);
+	}
+}
+
+R_API char **r_sys_get_environ(void) {
 #if __APPLE__ && !HAVE_ENVIRON
 	env = *_NSGetEnviron();
 #else
@@ -1202,7 +1226,7 @@ R_API char **r_sys_get_environ (void) {
 	return env;
 }
 
-R_API void r_sys_set_environ (char **e) {
+R_API void r_sys_set_environ(char **e) {
 	env = e;
 }
 

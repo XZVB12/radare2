@@ -331,6 +331,9 @@ typedef struct r_core_t {
 	RList *ropchain;
 	bool use_tree_sitter_r2cmd;
 
+	bool marks_init;
+	ut64 marks[UT8_MAX + 1];
+
 	RMainCallback r_main_radare2;
 	// int (*r_main_radare2)(int argc, char **argv);
 	int (*r_main_rafind2)(int argc, const char **argv);
@@ -467,7 +470,7 @@ R_API char* r_core_add_asmqjmp(RCore *core, ut64 addr);
 R_API void r_core_anal_type_init(RCore *core);
 R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn);
 R_API void r_core_anal_inflags (RCore *core, const char *glob);
-R_API int cmd_anal_objc (RCore *core, const char *input, bool auto_anal);
+R_API bool cmd_anal_objc (RCore *core, const char *input, bool auto_anal);
 R_API void r_core_anal_cc_init(RCore *core);
 R_API void r_core_anal_paths(RCore *core, ut64 from, ut64 to, bool followCalls, int followDepth, bool is_json);
 R_API void r_core_anal_esil_graph(RCore *core, const char *expr);
@@ -658,7 +661,7 @@ R_API int r_core_bin_set_by_name (RCore *core, const char *name);
 R_API int r_core_bin_reload(RCore *core, const char *file, ut64 baseaddr);
 R_API bool r_core_bin_load(RCore *core, const char *file, ut64 baseaddr);
 R_API int r_core_bin_rebase(RCore *core, ut64 baddr);
-R_API void r_core_bin_export_info_rad(RCore *core);
+R_API void r_core_bin_export_info(RCore *core, int mode);
 R_API int r_core_bin_list(RCore *core, int mode);
 R_API bool r_core_bin_delete (RCore *core, ut32 binfile_idx);
 R_API ut64 r_core_bin_impaddr(RBin *bin, int va, const char *name);
@@ -676,7 +679,7 @@ R_API bool r_core_project_open(RCore *core, const char *file, bool thready);
 R_API int r_core_project_cat(RCore *core, const char *name);
 R_API int r_core_project_delete(RCore *core, const char *prjfile);
 R_API int r_core_project_list(RCore *core, int mode);
-R_API bool r_core_project_save_rdb(RCore *core, const char *file, int opts);
+R_API bool r_core_project_save_script(RCore *core, const char *file, int opts);
 R_API bool r_core_project_save(RCore *core, const char *file);
 R_API char *r_core_project_info(RCore *core, const char *file);
 R_API char *r_core_project_notes_file (RCore *core, const char *file);

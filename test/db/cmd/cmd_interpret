@@ -17,3 +17,43 @@ EXPECT=<<EOF
 hello world
 EOF
 RUN
+
+NAME=.spp
+FILE=-
+CMDS=<<EOF
+. scripts/r2test.spp
+EOF
+EXPECT=<<EOF
+Test
+hello world
+Eron
+
+EOF
+RUN
+
+NAME=$foo=#!pipe
+FILE=-
+CMDS=<<EOF
+#!pipe echo hello
+$foo=#!pipe echo hello
+$foo
+?e --
+"$foo=#!pipe echo hello"
+$foo
+?e --
+$-*
+e cfg.newshell=true
+$foo=\#!pipe echo hello
+$foo
+?e --
+$-*
+EOF
+EXPECT=<<EOF
+hello
+--
+hello
+--
+hello
+--
+EOF
+RUN

@@ -327,11 +327,16 @@ R2PM_GIT() {
 	cd "${R2PM_GITDIR}"
 	if [ -d "${DIR}" ]; then
 		cd "${DIR}"
+		git checkout master
 		git pull
 	else
 		git clone --depth 1 --recursive "${URL}" "${DIR}" || R2PM_FAIL "Oops"
 		cd "${DIR}" || R2PM_FAIL "Oops"
 	fi
+	r2 -qv | grep -q git || { # r2 >= 4.5
+		git checkout "r2-${R2_VERSION}"
+		git pull
+	}
 }
 
 R2PM_SVN() {

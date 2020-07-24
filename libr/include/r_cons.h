@@ -21,7 +21,7 @@ extern "C" {
 #include <r_util/r_file.h>
 #include <r_vector.h>
 #include <sdb.h>
-#include <sdb/ht_up.h>
+#include <ht_up.h>
 
 #include <stdio.h>
 #include <sys/types.h>
@@ -447,8 +447,8 @@ typedef struct r_cons_context_t {
 	RConsGrep grep;
 	RStack *cons_stack;
 	char *buffer;
-	int buffer_len;
-	int buffer_sz;
+	size_t buffer_len;
+	size_t buffer_sz;
 
 	bool breaked;
 	RStack *break_stack;
@@ -1216,8 +1216,18 @@ typedef struct r_panels_root_t {
 	RPanelsRootState root_state;
 } RPanelsRoot;
 
-#ifdef __cplusplus
+
+#ifdef __sun
+static inline void cfmakeraw(struct termios *tm) {
+	tm->c_cflag &= ~(CSIZE | PARENB);
+	tm->c_cflag |= CS8;
+	tm->c_iflag &= ~(IMAXBEL | IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+	tm->c_oflag &= ~OPOST;
+	tm->c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
 }
 #endif
 
+#ifdef __cplusplus
+}
+#endif
 #endif

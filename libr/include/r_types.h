@@ -140,7 +140,7 @@
   static inline struct tm *gmtime_r(const time_t *t, struct tm *r) { return (gmtime_s(r, t))? NULL : r; }
 #endif
 
-#if defined(EMSCRIPTEN) || defined(__linux__) || defined(__APPLE__) || defined(__GNU__) || defined(__ANDROID__) || defined(__QNX__) || defined(__sun)
+#if defined(EMSCRIPTEN) || defined(__linux__) || defined(__APPLE__) || defined(__GNU__) || defined(__ANDROID__) || defined(__QNX__) || defined(__sun) || defined(__HAIKU__)
   #define __BSD__ 0
   #define __UNIX__ 1
 #endif
@@ -354,6 +354,11 @@ static inline void *r_new_copy(int size, void *data) {
 #include <dirent.h>
 #include <unistd.h>
 #include <sys/time.h>
+#ifdef __HAIKU__
+// Original macro cast it to clockid_t
+#undef CLOCK_MONOTONIC
+#define CLOCK_MONOTONIC 0
+#endif
 #endif
 
 #ifndef HAVE_EPRINTF
@@ -375,19 +380,6 @@ static inline void *r_new_copy(int size, void *data) {
 #endif
 #endif
 
-#define R_BETWEEN(x,y,z) (((y)>=(x)) && ((y)<=(z)))
-#define R_ROUND(x,y) ((x)%(y))?(x)+((y)-((x)%(y))):(x)
-#define R_DIM(x,y,z) (((x)<(y))?(y):((x)>(z))?(z):(x))
-#ifndef R_MAX_DEFINED
-#define R_MAX(x,y) (((x)>(y))?(x):(y))
-#define R_MAX_DEFINED
-#endif
-#ifndef R_MIN_DEFINED
-#define R_MIN(x,y) (((x)>(y))?(y):(x))
-#define R_MIN_DEFINED
-#endif
-#define R_ABS(x) (((x)<0)?-(x):(x))
-#define R_BTW(x,y,z) (((x)>=(y))&&((y)<=(z)))?y:x
 
 #define R_FREE(x) { free((void *)x); x = NULL; }
 
@@ -593,6 +585,8 @@ enum {
 #define R_SYS_OS "openbsd"
 #elif defined (__FreeBSD__) || defined (__FreeBSD_kernel__)
 #define R_SYS_OS "freebsd"
+#elif defined (__HAIKU__)
+#define R_SYS_OS "haiku"
 #else
 #define R_SYS_OS "unknown"
 #endif

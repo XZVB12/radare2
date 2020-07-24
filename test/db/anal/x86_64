@@ -5,7 +5,7 @@ aap
 aflc
 EOF
 EXPECT=<<EOF
-439
+440
 EOF
 RUN
 
@@ -53,8 +53,8 @@ s main+98
 pd 3
 EOF
 EXPECT=<<EOF
-0x000048f4 0x00004901 01:2A37 13 j 0x000045b1 f 0x00004901
-0x00004901 0x0000491a 01:2A38 25 j 0x000045ba f 0x0000491a
+0x000048f4 0x00004901 01:2A12 13 j 0x000045b1 f 0x00004901
+0x00004901 0x0000491a 01:2A13 25 j 0x000045ba f 0x0000491a
 
 |           0x000039c2      mov dword [0x0021f558], 2                  ; [0x21f558:4]=1
 |           0x000039cc      call fcn.00015960
@@ -1062,7 +1062,7 @@ RUN
 NAME=reflines offset 2 (ascii)
 FILE=bins/elf/analysis/ls-alxchk
 CMDS=<<EOF
-e asm.relsub=false
+e asm.sub.rel=false
 e asm.bytes=false
 e asm.leahints=false
 e scr.utf8=false
@@ -1111,7 +1111,7 @@ RUN
 NAME=reflines offset 3 (ascii)
 FILE=bins/elf/analysis/ls-alxchk
 CMDS=<<EOF
-e asm.relsub=false
+e asm.sub.rel=false
 e asm.bytes=false
 e asm.leahints=false
 e scr.utf8=false
@@ -1153,7 +1153,7 @@ RUN
 NAME=reflines offset 3 (ascii + wide)
 FILE=bins/elf/analysis/ls-alxchk
 CMDS=<<EOF
-e asm.relsub=false
+e asm.sub.rel=false
 e asm.bytes=false
 e asm.leahints=false
 e scr.utf8=false
@@ -1196,7 +1196,7 @@ RUN
 NAME=reflines offset 4 (ascii + wide)
 FILE=bins/elf/analysis/ls-alxchk
 CMDS=<<EOF
-e asm.relsub=false
+e asm.sub.rel=false
 e asm.bytes=false
 e asm.leahints=false
 e scr.utf8=false
@@ -1238,7 +1238,7 @@ RUN
 NAME=reflines in noreturn
 FILE=bins/elf/analysis/ls-alxchk
 CMDS=<<EOF
-e asm.relsub=false
+e asm.sub.rel=false
 e asm.bytes=false
 e asm.leahints=false
 e scr.utf8=false
@@ -1328,7 +1328,7 @@ RUN
 NAME=auto string memory reference (iopa)
 FILE=malloc://8096
 CMDS=<<EOF
-e asm.relsub=false
+e asm.sub.rel=false
 e asm.arch = x86
 e asm.bits=64
 e scr.color = false
@@ -1350,7 +1350,7 @@ RUN
 NAME=auto string memory reference (io.va)
 FILE=malloc://8096
 CMDS=<<EOF
-e asm.relsub=false
+e asm.sub.rel=false
 e asm.arch = x86
 e asm.bits=64
 e scr.color = false
@@ -2053,13 +2053,13 @@ fcn.08048542 0x80485ab [CALL] call sym.imp.exit
 EOF
 RUN
 
-NAME=axt respect relsub
+NAME=axt respect subrel
 FILE=bins/pe/ibknoreloc64.exe
 CMDS=<<EOF
 aaa
-e asm.relsub=false
+e asm.sub.rel=false
 axt @ sym.imp.msvcrt.dll_printf
-e asm.relsub=true
+e asm.sub.rel=true
 axt @ sym.imp.msvcrt.dll_printf
 EOF
 EXPECT=<<EOF
@@ -2272,11 +2272,11 @@ main 0x8048432 [STRING] lea eax, str.Hello_PIC
 EOF
 RUN
 
-NAME=strings xref issue without relsub
+NAME=strings xref issue without subrel
 FILE=bins/elf/redpill
 CMDS=<<EOF
 e anal.strings=true
-e asm.relsub=false
+e asm.sub.rel=false
 aa
 aae
 axt 0x00001d89
@@ -2298,11 +2298,11 @@ main 0x161d [STRING] lea eax, [esi - 0x21f7]
 EOF
 RUN
 
-NAME=reference PIC binary without relsub
+NAME=reference PIC binary without subrel
 FILE=bins/elf/analysis/xrefpic
 CMDS=<<EOF
 e anal.strings=true
-e asm.relsub=false
+e asm.sub.rel=false
 aa
 aae
 axt@0x80484e0
@@ -3345,6 +3345,54 @@ EXPECT=<<EOF
 0x140004c3a 1 case.0x140004b01.14
 0x140004c55 1 case.0x140004b01.15
 0x140004c79 1 case.0x140004b01.16
+EOF
+RUN
+
+NAME=test_switch_indirect.exe switch/case flags
+FILE=bins/jmptbl/test_switch_indirect.exe
+CMDS=<<EOF
+s main
+af
+e asm.lines = false
+pdf~case
+EOF
+EXPECT=<<EOF
+0x140001012      0f871a010000   ja case.0x140001034.2
+0x140001034      ffe1           jmp rcx                                ; switch table (99 cases) at 0x140001148
+;-- case 0:                                                            ; from 0x140001034
+0x140001036      488d0dd31100.  lea rcx, str.case_1                    ; 0x140002210 ; "case 1"
+;-- case 1:                                                            ; from 0x140001034
+0x14000104b      488d0dc61100.  lea rcx, str.case_2                    ; 0x140002218 ; "case 2"
+;-- case 10:                                                           ; from 0x140001034
+0x140001060      488d0db91100.  lea rcx, str.case_11                   ; 0x140002220 ; "case 11"
+;-- case 12:                                                           ; from 0x140001034
+0x140001075      488d0dac1100.  lea rcx, str.case_13                   ; 0x140002228 ; "case 13"
+;-- case 14...15:                                                      ; from 0x140001034
+0x14000108a      488d0d9f1100.  lea rcx, str.case_15_and_16            ; 0x140002230 ; "case 15 and 16"
+;-- case 18:                                                           ; from 0x140001034
+0x14000109f      488d0d9a1100.  lea rcx, str.case_19                   ; 0x140002240 ; "case 19"
+;-- case 49:                                                           ; from 0x140001034
+0x1400010b4      488d0d8d1100.  lea rcx, str.case_50                   ; 0x140002248 ; "case 50"
+;-- case 29:                                                           ; from 0x140001034
+0x1400010c9      488d0d801100.  lea rcx, str.case_30                   ; 0x140002250 ; "case 30"
+;-- case 19:                                                           ; from 0x140001034
+0x1400010de      488d0d731100.  lea rcx, str.case_20                   ; 0x140002258 ; "case 20"
+;-- case 9:                                                            ; from 0x140001034
+0x1400010f3      488d0d661100.  lea rcx, str.case_10                   ; 0x140002260 ; "case 10"
+;-- case 98:                                                           ; from 0x140001034
+0x140001108      488d0d591100.  lea rcx, str.case_99                   ; 0x140002268 ; "case 99"
+;-- case 96:                                                           ; from 0x140001034
+0x14000111d      488d0d4c1100.  lea rcx, str.case_97                   ; 0x140002270 ; "case 97"
+;-- case 2...8:                                                        ; from 0x140001034
+;-- case 11:                                                           ; from 0x140001034
+;-- case 13:                                                           ; from 0x140001034
+;-- case 17:                                                           ; from 0x140001034
+;-- case 21...28:                                                      ; from 0x140001034
+;-- case 30:                                                           ; from 0x140001034
+;-- case 31...48:                                                      ; from 0x140001034
+;-- case 50:                                                           ; from 0x140001034
+;-- case 51...95:                                                      ; from 0x140001034
+;-- case 97:                                                           ; from 0x140001034
 EOF
 RUN
 

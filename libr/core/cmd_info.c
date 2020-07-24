@@ -454,7 +454,7 @@ static int cmd_info(void *data, const char *input) {
 	bool newline = r_cons_is_interactive ();
 	int fd = r_io_fd_get_current (core->io);
 	RIODesc *desc = r_io_desc_get (core->io, fd);
-	int i, va = core->io->va || core->io->debug;
+	int i, va = core->io->va || core->bin->is_debugger;
 	int mode = 0; //R_MODE_SIMPLE;
 	bool rdump = false;
 	int is_array = 0;
@@ -549,7 +549,7 @@ static int cmd_info(void *data, const char *input) {
 				}
 				break;
 			case '*':
-				r_core_bin_export_info_rad (core);
+				r_core_bin_export_info (core, R_MODE_RADARE);
 				break;
 			case '.':
 			case ' ':
@@ -822,13 +822,25 @@ static int cmd_info(void *data, const char *input) {
 					break;
 				case 'd':
 					pdbopts.user_agent = (char*) r_config_get (core->config, "pdb.useragent");
-					pdbopts.symbol_server = (char*) r_config_get (core->config, "pdb.server");
 					pdbopts.extract = r_config_get_i (core->config, "pdb.extract");
 					pdbopts.symbol_store_path = (char*) r_config_get (core->config, "pdb.symstore");
-					int r = r_bin_pdb_download (core, 0, NULL, &pdbopts);
+					char *str = strdup (r_config_get (core->config, "pdb.server"));
+					RList *server_l = r_str_split_list (str, ";", 0);
+					RListIter *it;
+					char *server;
+					int r = 1;
+					r_list_foreach (server_l, it, server) {
+						pdbopts.symbol_server = server;
+						r = r_bin_pdb_download (core, 0, NULL, &pdbopts);
+						if (!r) {
+							break;
+						}
+					}
 					if (r > 0) {
 						eprintf ("Error while downloading pdb file\n");
 					}
+					free (str);
+					r_list_free (server_l);
 					input++;
 					break;
 				case 'i':

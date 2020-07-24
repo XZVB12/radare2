@@ -1740,6 +1740,7 @@ static bool cmd_r2cmd(RCore *core, const char *_input) {
 				return true;
 			}
 		}
+		free (input);
 		return false;
 	}
 	free (input);
@@ -2580,7 +2581,7 @@ static char *find_ch_after_macro(char *ptr, char ch) {
 static int r_core_cmd_subst(RCore *core, char *cmd) {
 	ut64 rep = strtoull (cmd, NULL, 10);
 	int ret = 0, orep;
-	char *cmt, *colon = NULL, *icmd = NULL;
+	char *colon = NULL, *icmd = NULL;
 	bool tmpseek = false;
 	bool original_tmpseek = core->tmpseek;
 
@@ -2624,9 +2625,23 @@ static int r_core_cmd_subst(RCore *core, char *cmd) {
 	if (!icmd || (cmd[0] == '#' && cmd[1] != '!' && cmd[1] != '?')) {
 		goto beach;
 	}
-	cmt = *icmd ? (char *)r_str_firstbut (icmd, '#', "\""): NULL;
-	if (cmt && (cmt[1] == ' ' || cmt[1] == '\t')) {
-		*cmt = 0;
+	if (*icmd && !strchr (icmd, '"')) {
+		char *hash = icmd;
+		for (hash = icmd + 1; *hash; hash++) {
+			if (*hash == '\\') {
+				hash++;
+				if (*hash == '#') {
+					continue;
+				}
+			}
+			if (*hash == '#') {
+				break;
+			}
+		}
+		if (hash && *hash) {
+			*hash = 0;
+			r_str_trim_tail (icmd);
+		}
 	}
 	if (*cmd != '"') {
 		if (!strchr (cmd, '\'')) { // allow | awk '{foo;bar}' // ignore ; if there's a single quote
@@ -5206,6 +5221,13 @@ DEFINE_HANDLE_TS_FCN_AND_SYMBOL(tmp_seek_command) {
 	char *offset_string = ts_node_handle_arg (state, node, offset, 1);
 	ut64 offset_val = r_num_math (state->core->num, offset_string);
 	ut64 orig_offset = state->core->offset;
+	if (!offset_val && isalpha ((int)offset_string[0])) {
+		if (!r_flag_get (state->core->flags, offset_string)) {
+			eprintf ("Invalid address (%s)\n", offset_string);
+			free (offset_string);
+			return R_CMD_STATUS_INVALID;
+		}
+	}
 	if (offset_string[0] == '-' || offset_string[0] == '+') {
 		offset_val += state->core->offset;
 	}
@@ -6473,7 +6495,7 @@ DEFINE_HANDLE_TS_FCN_AND_SYMBOL(pipe_command) {
 	char *first_str = ts_node_sub_string (first_cmd, state->input);
 	char *second_str = ts_node_sub_string (second_cmd, state->input);
 	int value = state->core->num->value;
-	RCmdStatus res = r_core_cmd_pipe (state->core, first_str, second_str);
+	RCmdStatus res = int2cmdstatus (r_core_cmd_pipe (state->core, first_str, second_str));
 	state->core->num->value = value;
 	free (first_str);
 	free (second_str);

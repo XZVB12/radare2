@@ -6,15 +6,20 @@
 #define NPF 5
 #define PIDX (R_ABS (core->printidx % NPF))
 
+static void visual_refresh(RCore *core);
+
 static int obs = 0;
 static int blocksize = 0;
 static bool autoblocksize = true;
 static int disMode = 0;
 static int hexMode = 0;
 static int printMode = 0;
-static void visual_refresh(RCore *core);
 static bool snowMode = false;
 static RList *snows = NULL;
+static int color = 1;
+static int debug = 1;
+static int zoom = 0;
+
 
 typedef struct {
 	int x;
@@ -224,7 +229,7 @@ static const char *__core_visual_print_command(RCore *core) {
 	return printfmtSingle[PIDX];
 }
 
-static bool __core_visual_gogo (RCore *core, int ch) {
+static bool __core_visual_gogo(RCore *core, int ch) {
 	RIOMap *map;
 	int ret = -1;
 	switch (ch) {
@@ -474,10 +479,6 @@ static inline void nextPrintFormat(RCore *core) {
 static inline void prevPrintFormat(RCore *core) {
 	printFormat (core, -1);
 }
-
-static int color = 1;
-static int debug = 1;
-static int zoom = 0;
 
 R_API int r_core_visual_hud(RCore *core) {
 	const char *c = r_config_get (core->config, "hud.path");
@@ -3635,9 +3636,12 @@ R_API void r_core_visual_title(RCore *core, int color) {
 			oldpc = curpc;
 		}
 	}
-
-	RIODesc *desc = core->file? r_io_desc_get (core->io, core->file->fd): NULL;
+	RIOMap *map = r_io_map_get (core->io, core->offset);
+	RIODesc *desc = map
+		? r_io_desc_get (core->io, map->fd)
+		: core->file? r_io_desc_get (core->io, core->file->fd): NULL;
 	filename = desc? desc->name: "";
+
 	{ /* get flag with delta */
 		ut64 addr = core->offset + (core->print->cur_enabled? core->print->cur: 0);
 		/* TODO: we need a helper into r_flags to do that */
@@ -3682,15 +3686,14 @@ R_API void r_core_visual_title(RCore *core, int color) {
 	}
 	const char *cmd_visual = r_config_get (core->config, "cmd.visual");
 	if (cmd_visual && *cmd_visual) {
-		strncpy (bar, cmd_visual, sizeof (bar) - 1);
+		r_str_ncpy (bar, cmd_visual, sizeof (bar) - 1);
 		bar[10] = '.'; // chop cmdfmt
 		bar[11] = '.'; // chop cmdfmt
 		bar[12] = 0; // chop cmdfmt
 	} else {
 		const char *cmd = __core_visual_print_command (core);
 		if (cmd) {
-			strncpy (bar, cmd, sizeof (bar) - 1);
-			bar[sizeof (bar) - 1] = 0; // '\0'-terminate bar
+			r_str_ncpy (bar, cmd, sizeof (bar) - 1);
 			bar[10] = '.'; // chop cmdfmt
 			bar[11] = '.'; // chop cmdfmt
 			bar[12] = 0; // chop cmdfmt

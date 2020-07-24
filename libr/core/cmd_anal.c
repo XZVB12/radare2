@@ -109,7 +109,8 @@ static const char *help_msg_abt[] = {
 
 static const char *help_msg_ac[] = {
 	"Usage:", "ac", "anal classes commands",
-	"acl[lj*]", "", "list all classes",
+	"acl[j*]", "", "list all classes",
+	"acll[j]", " (class_name)", "list all or single class detailed",
 	"ac", " [class name]", "add class",
 	"ac-", " [class name]", "delete class",
 	"acn", " [class name] [new class name]", "rename class",
@@ -976,21 +977,37 @@ static void var_help(RCore *core, char ch) {
 	}
 }
 
-static void var_accesses_list(RAnalFunction *fcn, RAnalVar *var, int access_type, const char *name) {
+static void var_accesses_list(RAnalFunction *fcn, RAnalVar *var, PJ *pj, int access_type, const char *name) {
 	RAnalVarAccess *acc;
 	bool first = true;
-	r_cons_printf ("%10s", name);
+	if (pj) {
+		pj_o (pj);
+		pj_ks (pj, "name", name);
+		pj_ka (pj, "addrs");
+	} else {
+		r_cons_printf ("%10s", name);
+	}
 	r_vector_foreach (&var->accesses, acc) {
 		if (!(acc->type & access_type)) {
 			continue;
 		}
-		r_cons_printf ("%s0x%"PFMT64x, first? "  ": ",", (ut64)((st64)fcn->addr + acc->offset));
+		ut64 addr = fcn->addr + acc->offset;
+		if (pj) {
+			pj_n (pj, addr);
+		} else {
+			r_cons_printf ("%s0x%" PFMT64x, first ? "  " : ",", addr);
+		}
 		first = false;
 	}
-	r_cons_newline ();
+	if (pj) {
+		pj_end (pj);
+		pj_end (pj);
+	} else {
+		r_cons_newline ();
+	}
 }
 
-static void list_vars(RCore *core, RAnalFunction *fcn, int type, const char *name) {
+static void list_vars(RCore *core, RAnalFunction *fcn, PJ *pj, int type, const char *name) {
 	RAnalVar *var = NULL;
 	RListIter *iter;
 	RList *list = r_anal_var_all_list (core->anal, fcn);
@@ -1032,28 +1049,51 @@ static void list_vars(RCore *core, RAnalFunction *fcn, int type, const char *nam
 		return;
 	}
 	int access_type = type == 'R' ? R_ANAL_VAR_ACCESS_TYPE_READ : R_ANAL_VAR_ACCESS_TYPE_WRITE;
+	if (pj) {
+		pj_a (pj);
+	}
 	if (name && *name) {
 		var = r_anal_function_get_var_byname (fcn, name);
 		if (var) {
-			var_accesses_list (fcn, var, access_type, var->name);
+			var_accesses_list (fcn, var, pj, access_type, var->name);
 		}
 	} else {
 		r_list_foreach (list, iter, var) {
-			var_accesses_list (fcn, var, access_type, var->name);
+			var_accesses_list (fcn, var, pj, access_type, var->name);
 		}
+	}
+	if (pj) {
+		pj_end (pj);
 	}
 }
 
-static void cmd_afvx(RCore *core, RAnalFunction *fcn) {
+static void cmd_afvx(RCore *core, RAnalFunction *fcn, bool json) {
 	r_return_if_fail (core);
 	if (!fcn) {
 		fcn = r_anal_get_fcn_in (core->anal, core->offset, R_ANAL_FCN_TYPE_ANY);
 	}
 	if (fcn) {
-		r_cons_printf ("afvR\n");
-		list_vars (core, fcn, 'R', NULL);
-		r_cons_printf ("afvW\n");
-		list_vars (core, fcn, 'W', NULL);
+		PJ *pj = NULL;
+		if (json) {
+			pj = pj_new ();
+			pj_o (pj);
+			pj_k (pj, "reads");
+		} else {
+			r_cons_printf ("afvR\n");
+		}
+		list_vars (core, fcn, pj, 'R', NULL);
+		if (json) {
+			pj_k (pj, "writes");
+		} else {	
+			r_cons_printf ("afvW\n");
+		}
+		list_vars (core, fcn, pj, 'W', NULL);
+		if (json) {
+			pj_end (pj);
+			char *j = pj_drain (pj);
+			r_cons_printf ("%s\n", j);
+			free (j);
+		}
 	}
 }
 
@@ -1228,7 +1268,7 @@ static int var_cmd(RCore *core, const char *str) {
 		return true;
 	case 'x': // "afvx"
 		if (fcn) {
-			cmd_afvx (core, fcn);
+			cmd_afvx (core, fcn, str[1] == 'j');
 		} else {
 			eprintf ("Cannot find function in 0x%08"PFMT64x"\n", core->offset);
 		}
@@ -1242,7 +1282,17 @@ static int var_cmd(RCore *core, const char *str) {
 			if (name) {
 				name = r_str_trim_head_ro (name);
 			}
-			list_vars (core, fcn, str[0], name);
+			PJ *pj = NULL;
+			if (str[1] == 'j') {
+				pj = pj_new ();
+			} 
+			list_vars (core, fcn, pj, str[0], name);
+			if (str[1] == 'j') {
+				pj_end (pj);
+				char *j = pj_drain (pj);
+				r_cons_printf ("%s\n", j);
+				free (j);
+			} 
 			return true;
 		} else {
 			eprintf ("afv: Cannot find function in 0x%08"PFMT64x"\n", core->offset);
@@ -1638,7 +1688,7 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 	bool stats = r_config_get_i (core->config, "esil.stats");
 	bool be = core->print->big_endian;
 	bool use_color = core->print->flags & R_PRINT_FLAGS_COLOR;
-	core->parser->relsub = r_config_get_i (core->config, "asm.relsub");
+	core->parser->subrel = r_config_get_i (core->config, "asm.sub.rel");
 	int ret, i, j, idx, size;
 	const char *color = "";
 	const char *esilstr;
@@ -1739,7 +1789,7 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 				strsub, sizeof (strsub));
 				ut64 killme = UT64_MAX;
 				if (r_io_read_i (core->io, op.ptr, &killme, op.refptr, be)) {
-					core->parser->relsub_addr = killme;
+					core->parser->subrel_addr = killme;
 				}
 			// 0x33->sym.xx
 			char *p = strdup (strsub);
@@ -1885,7 +1935,7 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 			disasm, sizeof (disasm));
 		ut64 killme = UT64_MAX;
 		if (r_io_read_i (core->io, op.ptr, &killme, op.refptr, be)) {
-			core->parser->relsub_addr = killme;
+			core->parser->subrel_addr = killme;
 		}
 		char *p = strdup (disasm);
 		if (p) {
@@ -2355,7 +2405,7 @@ static bool anal_bb_edge (RCore *core, const char *input) {
 		ut64 case_addr = r_num_math (core->num, sp);
 		RList *blocks = r_anal_get_blocks_in (core->anal, switch_addr);
 		if (blocks && !r_list_empty (blocks)) {
-			r_anal_block_add_switch_case (r_list_first (blocks), switch_addr, case_addr);
+			r_anal_block_add_switch_case (r_list_first (blocks), switch_addr, 0, case_addr);
 			ret = true;
 		}
 		r_list_free (blocks);
@@ -7070,6 +7120,17 @@ static void cmd_anal_ucall_ref (RCore *core, ut64 addr) {
 	}
 }
 
+static char *get_op_ireg(void *user, ut64 addr) {
+	RCore *core = (RCore *)user;
+	char *res = NULL;
+	RAnalOp *op = r_core_anal_op (core, addr, 0);
+	if (op && op->ireg) {
+		res = strdup (op->ireg);
+	}
+	r_anal_op_free (op);
+	return res;
+}
+
 static char *get_buf_asm(RCore *core, ut64 from, ut64 addr, RAnalFunction *fcn, bool color) {
 	int has_color = core->print->flags & R_PRINT_FLAGS_COLOR;
 	char str[512];
@@ -7079,11 +7140,11 @@ static char *get_buf_asm(RCore *core, ut64 from, ut64 addr, RAnalFunction *fcn, 
 	char *buf_asm = NULL;
 	bool asm_varsub = r_config_get_i (core->config, "asm.var.sub");
 	core->parser->pseudo = r_config_get_i (core->config, "asm.pseudo");
-	core->parser->relsub = r_config_get_i (core->config, "asm.relsub");
-	core->parser->localvar_only = r_config_get_i (core->config, "asm.var.subonly");
+	core->parser->subrel = r_config_get_i (core->config, "asm.sub.rel");
+	core->parser->localvar_only = r_config_get_i (core->config, "asm.sub.varonly");
 
-	if (core->parser->relsub) {
-		core->parser->relsub_addr = from;
+	if (core->parser->subrel) {
+		core->parser->subrel_addr = from;
 	}
 	r_io_read_at (core->io, addr, buf, size);
 	r_asm_set_pc (core->rasm, addr);
@@ -7092,6 +7153,9 @@ static char *get_buf_asm(RCore *core, ut64 from, ut64 addr, RAnalFunction *fcn, 
 	char *ba = malloc (ba_len);
 	strcpy (ba, r_strbuf_get (&asmop.buf_asm));
 	if (asm_varsub) {
+		core->parser->get_ptr_at = r_anal_function_get_var_stackptr_at;
+		core->parser->get_reg_at = r_anal_function_get_var_reg_at;
+		core->parser->get_op_ireg = get_op_ireg;
 		r_parse_varsub (core->parser, fcn, addr, asmop.size,
 				ba, ba, sizeof (asmop.buf_asm));
 	}
@@ -7217,7 +7281,7 @@ static bool cmd_anal_refs(RCore *core, const char *input) {
 		free (ptr);
 	} break;
 	case 'v': // "axv"
-		cmd_afvx (core, NULL);
+		cmd_afvx (core, NULL, input[1] == 'j');
 		break;
 	case 't': { // "axt"
 		RList *list = NULL;
@@ -8996,6 +9060,16 @@ static bool is_unknown_file(RCore *core) {
 	return true;
 }
 
+static bool is_apple_target(RCore *core) {
+	const char *arch = r_config_get (core->config, "asm.arch");
+	if (!strstr (arch, "ppc") && !strstr (arch, "arm") && !strstr (arch, "x86")) {
+		return false;
+	}
+	RBinObject *bo = r_bin_cur_object (core->bin);
+	r_return_val_if_fail (!bo || (bo->plugin && bo->plugin->name), false);
+	return bo? strstr (bo->plugin->name, "mach"): false;
+}
+
 static int cmd_anal_all(RCore *core, const char *input) {
 	switch (*input) {
 	case '?':
@@ -9197,9 +9271,11 @@ static int cmd_anal_all(RCore *core, const char *input) {
 				if (r_cons_is_breaked ()) {
 					goto jacuzzi;
 				}
-				oldstr = r_print_rowlog (core->print, "Check for objc references");
-				r_print_rowlog_done (core->print, oldstr);
-				cmd_anal_objc (core, input + 1, true);
+				if (is_apple_target (core)) {
+					oldstr = r_print_rowlog (core->print, "Check for objc references");
+					r_print_rowlog_done (core->print, oldstr);
+					cmd_anal_objc (core, input + 1, true);
+				}
 				r_core_task_yield (&core->tasks);
 				oldstr = r_print_rowlog (core->print, "Check for vtables");
 				r_core_cmd0 (core, "avrr");
@@ -9334,7 +9410,12 @@ static int cmd_anal_all(RCore *core, const char *input) {
 		break;
 	case 'e': // "aae"
 		if (input[1] == 'f') { // "aaef
-			r_core_cmd0 (core, "aef@@@F");
+			RListIter *it;
+			RAnalFunction *fcn;
+			r_list_foreach (core->anal->fcns, it, fcn) {
+				r_core_seek (core, fcn->addr, true);
+				r_core_anal_esil (core, "f", NULL);
+			}
 		} else if (input[1] == ' ') {
 			const char *len = (char *)input + 1;
 			char *addr = strchr (input + 2, ' ');
@@ -9744,6 +9825,33 @@ static void cmd_anal_class_vtable(RCore *core, const char *input) {
 static void cmd_anal_classes(RCore *core, const char *input) {
 	switch (input[0]) {
 	case 'l': // "acl"
+		if (input[1] == 'l') { // "acll" (name)
+			char mode = 0;
+			int arg_offset = 2;
+			if (input[2] == 'j') {
+				arg_offset++;
+				mode = 'j';
+			}
+			const char *arg = r_str_trim_head_ro (input + arg_offset);
+			if (*arg) { // if there is an argument
+				char *class_name = strdup (arg);
+				if (!class_name) {
+					break;
+				}
+				char *name_end = (char *)r_str_trim_head_wp (class_name);
+				*name_end = 0; // trim the whitespace around the name
+				if (mode == 'j') {
+					PJ *pj = pj_new ();
+					r_anal_class_json (core->anal, pj, class_name);
+					r_cons_printf ("%s\n", pj_string (pj));
+					pj_free (pj);
+				} else {
+					r_anal_class_print (core->anal, class_name, true);
+				}
+				free (class_name);
+				break;
+			}
+		}
 		r_anal_class_list (core->anal, input[1]);
 		break;
 	case ' ': // "ac"

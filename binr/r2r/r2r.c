@@ -1,7 +1,6 @@
 /* radare - LGPL - Copyright 2020 - thestr4ng3r */
 
 #include "r2r.h"
-#include <r_cons.h>
 #include <assert.h>
 
 #define WORKERS_DEFAULT        8
@@ -533,9 +532,16 @@ static void print_diff(const char *actual, const char *expected, bool diffchar) 
 	d->diff_cmd = "git diff --no-index";
 #endif
 	if (diffchar) {
+		RDiffChar *diff = r_diffchar_new ((const ut8 *)expected, (const ut8 *)actual);
+		if (diff) {
+			r_diffchar_print (diff);
+			r_diffchar_free (diff);
+			return;
+		}
 		d->diff_cmd = "git diff --no-index --word-diff=porcelain --word-diff-regex=.";
 	}
-	char *uni = r_diff_buffers_to_string (d, (const ut8 *)expected, (int)strlen (expected), (const ut8 *)actual, (int)strlen (actual));
+	char *uni = r_diff_buffers_to_string (d, (const ut8 *)expected, (int)strlen (expected),
+	                                      (const ut8 *)actual, (int)strlen (actual));
 	r_diff_free (d);
 
 	RList *lines = r_str_split_duplist (uni, "\n", false);
@@ -557,10 +563,10 @@ static void print_diff(const char *actual, const char *expected, bool diffchar) 
 		char c = *line;
 		switch (c) {
 		case '+':
-			printf ("%s", diffchar ? Color_BBGGREEN Color_BLACK : Color_GREEN);
+			printf ("%s"Color_INSERT, diffchar ? Color_BGINSERT : "");
 			break;
 		case '-':
-			printf ("%s", diffchar ? Color_BBGRED Color_BLACK : Color_RED);
+			printf ("%s"Color_DELETE, diffchar ? Color_BGDELETE : "");
 			break;
 		case '~': // can't happen if !diffchar
 			printf ("\n");
