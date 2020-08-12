@@ -742,7 +742,7 @@ R_API int r_core_bin_info (RCore *core, int action, int mode, int va, RCoreBinFi
 R_API int r_core_bin_set_arch_bits (RCore *r, const char *name, const char * arch, ut16 bits);
 R_API int r_core_bin_update_arch_bits (RCore *r);
 R_API char *r_core_bin_method_flags_str(ut64 flags, int mode);
-R_API int r_core_pdb_info(RCore *core, const char *file, ut64 baddr, int mode);
+R_API bool r_core_pdb_info(RCore *core, const char *file, int mode);
 
 /* rtr */
 R_API int r_core_rtr_cmds (RCore *core, const char *port);
@@ -930,39 +930,34 @@ extern RCorePlugin r_core_plugin_a2f;
 
 /* DECOMPILER PRINTING FUNCTIONS */
 /**
-* r_core_annotated_code_print_json() - Prints the data contained in RAnnotatedCode *code in JSON format.
-* @code: Pointer to a RAnnotatedCode
-*
-* Prints the data contained in RAnnotatedCode represented by the pointer 'code' in JSON format. 
-* The function will print the output in console using the function r_cons_printf();
-* 	
-* Return: Nothing
-*/
+ * @brief Prints the data contained in the specified RAnnotatedCode in JSON format.
+ * 
+ * The function will print the output in console using the function r_cons_printf();
+ * 
+ * @param code Pointer to a RAnnotatedCode.
+ */
 R_API void r_core_annotated_code_print_json(RAnnotatedCode *code);
 /**
-* r_core_annotated_code_print() - Prints the decompiled code in the passed argument 'code'.
-* @code: Pointer to a RAnnotatedCode
-* @line_offsets: Pointer to a RVector that containes offsets for the decompiled code
-*
-* This function is used for printing the output of commands pdg and pdgo.
-* It can print the decompiled code with or without offsets. If line_offsets is a null pointer,
-* the output will be printed without offsets (pdg), otherwise, the output will be
-* printed with offsets.
-* This function will print the output in console using the function r_cons_printf();
-* 
-* Return: Nothing
-*/
+ * @brief Prints the decompiled code from the specified RAnnotatedCode.
+ * 
+ * This function is used for printing the output of commands pdg and pdgo.
+ * It can print the decompiled code with or without offsets. If line_offsets is a null pointer,
+ * the output will be printed without offsets (pdg), otherwise, the output will be
+ * printed with offsets.
+ * This function will print the output in console using the function r_cons_printf();
+ * 
+ * @param code Pointer to a RAnnotatedCode.
+ * @param line_offsets Pointer to a @ref RVector that contains offsets for the decompiled code.
+ */
 R_API void r_core_annotated_code_print(RAnnotatedCode *code, RVector *line_offsets);
 /**
-* r_core_annotated_code_print_comment_cmds() - Prints the decompiled code as comments
-* @code: Pointer to a RAnnotatedCode
-*
-* This functions prints the decompiled code as comment.
-* This function is used for the output of command pdg*
-* Output will be printed in console using the function r_cons_printf();
-* 	
-* Return: Nothing
-*/
+ * @brief  Prints the decompiled code as comments
+ * 
+ * This function is used for the output of command pdg*
+ * Output will be printed in console using the function r_cons_printf();
+ * 
+ * @param code Pointer to a RAnnotatedCode.
+ */
 R_API void r_core_annotated_code_print_comment_cmds(RAnnotatedCode *code);
 
 #endif
