@@ -188,14 +188,6 @@ static RList *zign_types_to_list(RAnal *a, const char *types) {
 	return ret;
 }
 
-static void bytes_sig_free(RSignBytes *bytes) {
-	if (bytes) {
-		free (bytes->bytes);
-		free (bytes->mask);
-		free (bytes);
-	}
-}
-
 static RList *do_reflike_sig(const char *token) {
 	RList *list = NULL;
 	char *scratch = r_str_new (token);
@@ -243,6 +235,8 @@ R_API bool r_sign_deserialize(RAnal *a, RSignItem *it, const char *k, const char
 	it->space = r_spaces_add (&a->zign_spaces, r_str_word_get0 (k2, 1));
 	it->name = r_str_new (r_str_word_get0 (k2, 2));
 
+	// remove newline at end
+	strtok (v2, "\n");
 	// Deserialize value: |k:v|k:v|k:v|...
 	n = r_str_split (v2, '|');
 	const char *token = NULL;
@@ -555,7 +549,7 @@ static void mergeItem(RSignItem *dst, RSignItem *src) {
 	char *ref, *var, *type;
 
 	if (src->bytes) {
-		bytes_sig_free (dst->bytes);
+		r_sign_bytes_free (dst->bytes);
 		dst->bytes = R_NEW0 (RSignBytes);
 		if (!dst->bytes) {
 			return;
@@ -564,13 +558,13 @@ static void mergeItem(RSignItem *dst, RSignItem *src) {
 		dst->bytes->size = src->bytes->size;
 		dst->bytes->bytes = malloc (src->bytes->size);
 		if (!dst->bytes->bytes) {
-			bytes_sig_free (dst->bytes);
+			r_sign_bytes_free (dst->bytes);
 			return;
 		}
 		memcpy (dst->bytes->bytes, src->bytes->bytes, src->bytes->size);
 		dst->bytes->mask = malloc (src->bytes->size);
 		if (!dst->bytes->mask) {
-			bytes_sig_free (dst->bytes);
+			r_sign_bytes_free (dst->bytes);
 			return;
 		}
 		memcpy (dst->bytes->mask, src->bytes->mask, src->bytes->size);
@@ -755,7 +749,7 @@ static bool addBytes(RAnal *a, const char *name, ut64 size, const ut8 *bytes, co
 fail:
 	if (it) {
 		free (it->name);
-		bytes_sig_free (it->bytes);
+		r_sign_bytes_free (it->bytes);
 	}
 	free (it);
 	return false;
@@ -821,7 +815,7 @@ static int bb_sort_by_addr(const void *x, const void *y) {
 }
 
 static RSignBytes *r_sign_fcn_bytes(RAnal *a, RAnalFunction *fcn) {
-	r_return_val_if_fail (a && fcn, false);
+	r_return_val_if_fail (a && fcn && fcn->bbs && fcn->bbs->head, false);
 
 	// get size
 	RCore *core = a->coreb.core;
@@ -877,7 +871,7 @@ static RSignBytes *r_sign_fcn_bytes(RAnal *a, RAnalFunction *fcn) {
 
 	return sig;
 bytes_failed:
-	bytes_sig_free (sig);
+	r_sign_bytes_free (sig);
 	return NULL;
 }
 
@@ -1246,19 +1240,7 @@ typedef struct {
 	double infimum;
 } ClosestMatchData;
 
-static bool closest_match_callback(void *a, const char *name, const char *value) {
-	ClosestMatchData *data = (ClosestMatchData *)a;
-
-	// get signature in usable format
-	RSignItem *it = r_sign_item_new ();
-	if (!it) {
-		return false;
-	}
-	if (!r_sign_deserialize (a, it, name, value)) {
-		r_sign_item_free (it);
-		return false;
-	}
-
+static bool closest_match_update(ClosestMatchData *data, RSignItem *it) {
 	// quantify how close the signature matches
 	int div = 0;
 	double score = 0.0;
@@ -1331,8 +1313,23 @@ static bool closest_match_callback(void *a, const char *name, const char *value)
 		row = r_list_get_top (data->output);
 		data->infimum = row->score;
 	}
-
 	return true;
+}
+
+static bool closest_match_callback(void *a, const char *name, const char *value) {
+	ClosestMatchData *data = (ClosestMatchData *)a;
+
+	// get signature in usable format
+	RSignItem *it = r_sign_item_new ();
+	if (!it) {
+		return false;
+	}
+	if (!r_sign_deserialize (a, it, name, value)) {
+		r_sign_item_free (it);
+		return false;
+	}
+
+	return closest_match_update (data, it);
 }
 
 R_API void r_sign_close_match_free(RSignCloseMatch *match) {
@@ -1371,6 +1368,52 @@ R_API RList *r_sign_find_closest_sig(RAnal *a, RSignItem *it, int count, double 
 		output = NULL;
 	}
 
+	free (data.bytes_combined);
+	return output;
+}
+
+R_API RList *r_sign_find_closest_fcn(RAnal *a, RSignItem *it, int count, double score_threshold) {
+	r_return_val_if_fail (a && it && count > 0 && score_threshold >= 0 && score_threshold <= 1, NULL);
+	r_return_val_if_fail (it->bytes || it->graph, NULL);
+
+	RList *output = r_list_newf ((RListFree)r_sign_close_match_free);
+	if (!output) {
+		return NULL;
+	}
+
+	ClosestMatchData data;
+	data.output = output;
+	data.count = count;
+	data.score_threshold = score_threshold;
+	data.infimum = 0.0;
+	data.test = it;
+	if (it->bytes) {
+		data.bytes_combined = build_combined_bytes (it->bytes);
+	} else {
+		data.bytes_combined = NULL;
+	}
+
+	RAnalFunction *fcn;
+	RListIter *iter;
+	r_list_foreach (a->fcns, iter, fcn) {
+		// turn function into signature item
+		RSignItem *fsig = r_sign_item_new ();
+		if (!fsig) {
+			r_list_free (output);
+			return NULL;
+		}
+		if (data.bytes_combined) {
+			r_sign_addto_item (a, fsig, fcn, R_SIGN_BYTES);
+		}
+		if (it->graph) {
+			r_sign_addto_item (a, fsig, fcn, R_SIGN_GRAPH);
+		}
+		r_sign_addto_item (a, fsig, fcn, R_SIGN_OFFSET);
+		fsig->name = r_str_new (fcn->name);
+
+		// maybe add signature item to output list
+		closest_match_update (&data, fsig);
+	}
 	free (data.bytes_combined);
 	return output;
 }
@@ -2578,7 +2621,7 @@ R_API void r_sign_item_free(RSignItem *item) {
 		return;
 	}
 	free (item->name);
-	bytes_sig_free (item->bytes);
+	r_sign_bytes_free (item->bytes);
 	if (item->hash) {
 		free (item->hash->bbhash);
 		free (item->hash);
@@ -2595,6 +2638,14 @@ R_API void r_sign_item_free(RSignItem *item) {
 
 R_API void r_sign_graph_free(RSignGraph *graph) {
 	free (graph);
+}
+
+R_API void r_sign_bytes_free(RSignBytes *bytes) {
+	if (bytes) {
+		free (bytes->bytes);
+		free (bytes->mask);
+		free (bytes);
+	}
 }
 
 static bool loadCB(void *user, const char *k, const char *v) {

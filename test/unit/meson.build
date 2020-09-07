@@ -22,9 +22,11 @@ if get_option('enable_tests')
     'cons',
     'contrbtree',
     'debruijn',
+    'debug_session',
     'diff',
     'dwarf',
     'dwarf_info',
+    'dwarf_integration',
     'esil_dfg_filter',
     'event',
     'flags',
@@ -33,6 +35,7 @@ if get_option('enable_tests')
     'hex',
     'intervaltree',
     'io',
+    'json',
     'list',
     'parse_ctype',
     'pj',
@@ -51,7 +54,9 @@ if get_option('enable_tests')
     'unum',
     'util',
     'vector',
-    'big'
+    'big',
+    'idpool',
+    'idstorage'
   ]
 
   foreach test : tests

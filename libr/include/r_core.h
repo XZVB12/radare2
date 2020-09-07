@@ -412,7 +412,7 @@ R_API int r_core_cmd0(RCore *core, const char *cmd);
 R_API void r_core_cmd_init(RCore *core);
 R_API int r_core_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd);
 R_API char *r_core_cmd_str(RCore *core, const char *cmd);
-R_API char *r_core_cmd_strf(RCore *core, const char *fmt, ...);
+R_API char *r_core_cmd_strf(RCore *core, const char *fmt, ...) R_PRINTF_CHECK(2, 3);
 R_API char *r_core_cmd_str_pipe(RCore *core, const char *cmd);
 R_API int r_core_cmd_file(RCore *core, const char *file);
 R_API int r_core_cmd_lines(RCore *core, const char *lines);
@@ -632,7 +632,7 @@ typedef struct r_core_asm_hit {
 } RCoreAsmHit;
 
 R_API RBuffer *r_core_syscall (RCore *core, const char *name, const char *args);
-R_API RBuffer *r_core_syscallf (RCore *core, const char *name, const char *fmt, ...);
+R_API RBuffer *r_core_syscallf (RCore *core, const char *name, const char *fmt, ...) R_PRINTF_CHECK(3, 4);
 R_API RCoreAsmHit *r_core_asm_hit_new(void);
 R_API RList *r_core_asm_hit_list_new(void);
 R_API void r_core_asm_hit_free(void *_hit);
@@ -645,9 +645,12 @@ R_API RList *r_core_asm_back_disassemble_byte (RCore *core, ut64 addr, int len, 
 R_API ut32 r_core_asm_bwdis_len (RCore* core, int* len, ut64* start_addr, ut32 l);
 R_API int r_core_print_disasm(RPrint *p, RCore *core, ut64 addr, ut8 *buf, int len, int lines, int invbreak, int nbytes, bool json, PJ *pj, RAnalFunction *pdf);
 R_API int r_core_print_disasm_json(RCore *core, ut64 addr, ut8 *buf, int len, int lines, PJ *pj);
-R_API int r_core_print_disasm_instructions (RCore *core, int len, int l);
-R_API int r_core_print_disasm_all (RCore *core, ut64 addr, int l, int len, int mode);
+R_API int r_core_print_disasm_instructions_with_buf(RCore *core, ut64 address, ut8 *buf, int nb_bytes, int nb_opcodes);
+R_API int r_core_print_disasm_instructions(RCore *core, int nb_bytes, int nb_opcodes);
+R_API int r_core_print_disasm_all(RCore *core, ut64 addr, int l, int len, int mode);
+R_API int r_core_disasm_pdi_with_buf(RCore *core, ut64 address, ut8 *buf, ut32 nb_opcodes, ut32 nb_bytes, int fmt);
 R_API int r_core_disasm_pdi(RCore *core, int nb_opcodes, int nb_bytes, int fmt);
+R_API int r_core_disasm_pde(RCore *core, int nb_opcodes, int mode);
 R_API int r_core_print_fcn_disasm(RPrint *p, RCore *core, ut64 addr, int l, int invbreak, int cbytes);
 R_API int r_core_get_prc_cols(RCore *core);
 R_API int r_core_flag_in_middle(RCore *core, ut64 at, int oplen, int *midflags);

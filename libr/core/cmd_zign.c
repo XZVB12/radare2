@@ -11,7 +11,7 @@ static const char *help_msg_z[] = {
 	"Usage:", "z[*j-aof/cs] [args] ", "# Manage zignatures",
 	"z", "", "show zignatures",
 	"z.", "", "find matching zignatures in current offset",
-	"zb", "[n=5]", "find n closest matching zignatures to function at current offset",
+	"zb", "[?][n=5]", "search for best match",
 	"z*", "", "show zignatures in radare format",
 	"zq", "", "show zignatures in quiet mode",
 	"zj", "", "show zignatures in json format",
@@ -26,6 +26,13 @@ static const char *help_msg_z[] = {
 	"zc", "[?]", "compare current zignspace zignatures with another one",
 	"zs", "[?]", "manage zignspaces",
 	"zi", "", "show zignatures matching information",
+	NULL
+};
+
+static const char *help_msg_zb[] = {
+	"Usage:", "zb[r?] [args]", "# search for closest matching signatures",
+	"zb ", "[n]", "find n closest matching zignatures to function at current offset",
+	"zbr ", "zigname [n]", "search for n most similar functions to zigname",
 	NULL
 };
 
@@ -85,6 +92,7 @@ static const char *help_msg_zc[] = {
 
 static void cmd_zign_init(RCore *core, RCmdDesc *parent) {
 	DEFINE_CMD_DESCRIPTOR (core, z);
+	DEFINE_CMD_DESCRIPTOR (core, zb);
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, z/, z_slash);
 	DEFINE_CMD_DESCRIPTOR (core, za);
 	DEFINE_CMD_DESCRIPTOR (core, zf);
@@ -1001,10 +1009,102 @@ static void print_possible_matches(RList *list) {
 	}
 }
 
-static bool bestmatch(void *data, const char *input) {
-	RCore *core = (RCore *)data;
-	int count = 5;
+static RSignItem *item_frm_signame(RAnal *a, const char *signame) {
+	// example zign|*|sym.unlink_blk
+	const RSpace *space = r_spaces_current (&a->zign_spaces);
+	char *k = r_str_newf ("zign|%s|%s", space? space->name: "*", signame);
+	char *value = sdb_querys (a->sdb_zigns, NULL, 0, k);
+	if (!value) {
+		free (k);
+		return NULL;
+	}
 
+	RSignItem *it = r_sign_item_new ();
+	if (!it) {
+		free (k);
+		free (value);
+		return NULL;
+	}
+
+	if (!r_sign_deserialize (a, it, k, value)) {
+		r_sign_item_free (it);
+		it = NULL;
+	}
+	free (k);
+	free (value);
+	return it;
+}
+
+static double get_zb_threshold(RCore *core) {
+	const char *th = r_config_get (core->config, "zign.threshold");
+	double thresh = r_num_get_float (NULL, th);
+	if (thresh < 0.0 || thresh > 1.0) {
+		eprintf ("Invalid zign.threshold %s, using 0.0\n", th);
+		thresh = 0.0;
+	}
+	return thresh;
+}
+
+static bool bestmatch_fcn(RCore *core, const char *input) {
+	r_return_val_if_fail (input && core, false);
+
+	char *argv = r_str_new (input);
+	if (!argv) {
+		return false;
+	}
+
+	int count = 5;
+	char *zigname = strtok (argv, " ");
+	if (!zigname) {
+		eprintf ("Need a signature\n");
+		free (argv);
+		return false;
+	}
+	char *cs = strtok (NULL, " ");
+	if (cs) {
+		if ((count = atoi (cs)) <= 0) {
+			free (argv);
+			eprintf ("Invalid count\n");
+			return false;
+		}
+		if (strtok (NULL, " ")) {
+			free (argv);
+			eprintf ("Too many parameters\n");
+			return false;
+		}
+	}
+	RSignItem *it = item_frm_signame (core->anal, zigname);
+	if (!it) {
+		eprintf ("Couldn't get signature for %s\n", zigname);
+		free (argv);
+		return false;
+	}
+	free (argv);
+
+	if (!r_config_get_i (core->config, "zign.bytes")) {
+		r_sign_bytes_free (it->bytes);
+		it->bytes = NULL;
+	}
+	if (!r_config_get_i (core->config, "zign.graph")) {
+		r_sign_graph_free (it->graph);
+		it->graph = NULL;
+	}
+
+	double thresh = get_zb_threshold (core);
+	RList *list = r_sign_find_closest_fcn (core->anal, it, count, thresh);
+	r_sign_item_free (it);
+
+	if (list) {
+		print_possible_matches (list);
+		r_list_free (list);
+		return true;
+	}
+	return false;
+}
+
+static bool bestmatch_sig(RCore *core, const char *input) {
+	r_return_val_if_fail (input && core, false);
+	int count = 5;
 	if (!R_STR_ISEMPTY (input)) {
 		count = atoi (input);
 		if (count <= 0) {
@@ -1018,6 +1118,7 @@ static bool bestmatch(void *data, const char *input) {
 		eprintf ("No function at 0x%08" PFMT64x "\n", core->offset);
 		return false;
 	}
+
 	RSignItem *item = r_sign_item_new ();
 	if (!item) {
 		return false;
@@ -1037,10 +1138,11 @@ static bool bestmatch(void *data, const char *input) {
 		r_sign_addto_item (core->anal, item, fcn, R_SIGN_GRAPH);
 	}
 
+	double th = get_zb_threshold (core);
 	bool found = false;
 	if (item->graph || item->bytes) {
 		r_cons_break_push (NULL, NULL);
-		RList *list = r_sign_find_closest_sig (core->anal, item, count, 0);
+		RList *list = r_sign_find_closest_sig (core->anal, item, count, th);
 		if (list) {
 			found = true;
 			print_possible_matches (list);
@@ -1053,6 +1155,26 @@ static bool bestmatch(void *data, const char *input) {
 
 	r_sign_item_free (item);
 	return found;
+}
+
+static bool bestmatch(void *data, const char *input) {
+	r_return_val_if_fail (data && input, false);
+	RCore *core = (RCore *)data;
+	switch (input[0]) {
+	case 'r':
+		input++;
+		return bestmatch_fcn (core, input);
+		break;
+	case ' ':
+		input++;
+	case '\x00':
+		return bestmatch_sig (core, input);
+		break;
+	case '?':
+	default:
+		r_core_cmd_help (core, help_msg_zb);
+		return false;
+	}
 }
 
 static int cmdCompare(void *data, const char *input) {

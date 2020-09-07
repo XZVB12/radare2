@@ -109,13 +109,7 @@ static char *getFunctionName(RCore *core, ut64 addr) {
 			break;
 		}
 	}
-	if (name) {
-		if (r_config_get_i (core->config, "asm.flags.real")) {
-			name += 4;
-		}
-		return strdup (name);
-	}
-	return NULL;
+	return name ? strdup (name) : NULL;
 }
 
 static RCore *mycore = NULL;
@@ -3432,12 +3426,12 @@ static bool anal_block_cb(RAnalBlock *bb, BlockRecurseCtx *ctx) {
 		int opsize = op->size;
 		int optype = op->type;
 		r_anal_op_free (op);
-		if (opsize < 1) { 
+		if (opsize < 1) {
 			break;
 		}
 		if (optype == R_ANAL_OP_TYPE_CALL) {
 			size_t i;
-			int max_count = r_anal_cc_max_arg (core->anal, fcn->cc);
+			int max_count = fcn->cc ? r_anal_cc_max_arg (core->anal, fcn->cc) : 0;
 			for (i = 0; i < max_count; i++) {
 				reg_set[i] = 2;
 			}
@@ -3453,7 +3447,7 @@ R_API void r_core_recover_vars(RCore *core, RAnalFunction *fcn, bool argonly) {
 	if (core->anal->opt.bb_max_size < 1) {
 		return;
 	}
-	BlockRecurseCtx ctx = { 0, { 0 }, argonly, fcn, core };
+	BlockRecurseCtx ctx = { 0, {{ 0 }}, argonly, fcn, core };
 	r_pvector_init (&ctx.reg_set, free);
 	int *reg_set = R_NEWS0 (int, REG_SET_SIZE);
 	r_pvector_push (&ctx.reg_set, reg_set);
@@ -5000,7 +4994,7 @@ static inline bool get_next_i(IterCtx *ctx, size_t *next_i) {
 			r_list_delete (ctx->bbl, bbit);
 			*next_i = ctx->cur_bb->addr - ctx->start_addr;
 		}
-	} else if (cur_addr > ctx->end_addr) {
+	} else if (cur_addr >= ctx->end_addr) {
 		return false;
 	}
 	return true;
