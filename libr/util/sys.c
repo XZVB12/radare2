@@ -17,6 +17,10 @@
 #  define FREEBSD_WITH_BACKTRACE
 # endif
 #endif
+#if defined(__DragonFly__)
+# include <sys/param.h>
+# include <sys/sysctl.h>
+#endif
 #if defined(__HAIKU__)
 # include <kernel/image.h>
 # include <sys/param.h>
@@ -171,15 +175,13 @@ R_API int r_sys_sigaction(int *sig, void (*handler) (int)) {
 	return 0;
 }
 #else
-R_API int r_sys_sigaction(int *sig, void (*handler) (int)) {
-	int ret, i;
-
+R_API int r_sys_sigaction(int *sig, void (*handler)(int)) {
 	if (!sig) {
 		return -EINVAL;
 	}
-
+	size_t i;
 	for (i = 0; sig[i] != 0; i++) {
-		ret = signal (sig[i], handler);
+		void (*ret)(int) = signal (sig[i], handler);
 		if (ret == SIG_ERR) {
 			eprintf ("Failed to set signal handler for signal '%d': %s\n", sig[i], strerror(errno));
 			return -1;
@@ -560,6 +562,13 @@ R_API bool r_sys_aslr(int val) {
 		eprintf ("Failed to set RVA\n");
 		ret = false;
 	}
+#elif __DragonFly__
+	size_t vlen = sizeof (val);
+	if (sysctlbyname ("vm.randomize_mmap", NULL, 0, &val, vlen) == -1) {
+		eprintf ("Failed to set RVA\n");
+		ret = false;
+	}
+#elif __DragonFly__
 #endif
 	return ret;
 }
@@ -1166,7 +1175,7 @@ R_API char *r_sys_pid_to_path(int pid) {
 #endif
 #else
 	int ret;
-#if __FreeBSD__
+#if __FreeBSD__ || __DragonFly__
 	char pathbuf[PATH_MAX];
 	size_t pathbufl = sizeof (pathbuf);
 	int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, pid};

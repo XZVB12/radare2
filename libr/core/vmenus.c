@@ -323,7 +323,7 @@ R_API bool r_core_visual_bit_editor(RCore *core) {
 			const ut8 *byte = buf + i;
 			char ch = IS_PRINTABLE (*byte)? *byte: '?';
 			if (i == 4) {
-				r_cons_printf (" |");
+				r_cons_print (" |");
 			}
 			if (use_color) {
 				r_cons_printf (" %5s'%s%c"Color_RESET"'", " ", core->cons->context->pal.btext, ch);
@@ -335,7 +335,7 @@ R_API bool r_core_visual_bit_editor(RCore *core) {
 		for (i = 0; i < 8; i++) {
 			const ut8 *byte = buf + i;
 			if (i == 4) {
-				r_cons_printf (" |");
+				r_cons_print (" |");
 			}
 			r_cons_printf (" %8d", *byte);
 		}
@@ -343,7 +343,7 @@ R_API bool r_core_visual_bit_editor(RCore *core) {
 		for (i = 0; i < 8; i++) {
 			const ut8 *byte = buf + i;
 			if (i == 4) {
-				r_cons_printf (" |");
+				r_cons_print (" |");
 			}
 			r_cons_printf ("     0x%02x", *byte);
 		}
@@ -352,7 +352,7 @@ R_API bool r_core_visual_bit_editor(RCore *core) {
 			for (i = 0; i < 8; i++) {
 				ut8 *byte = buf + i;
 				if (i == 4) {
-					r_cons_printf ("| ");
+					r_cons_print ("| ");
 				}
 				if (colorBits && i >= asmop.size) {
 					r_cons_print (Color_RESET);
@@ -372,7 +372,7 @@ R_API bool r_core_visual_bit_editor(RCore *core) {
 				for (i = 0; i < 8; i++) {
 					ut8 *byte = buf + i;
 					if (i == 4) {
-						r_cons_printf ("| ");
+						r_cons_print ("| ");
 					}
 					if (colorBits && i >= asmop.size) {
 						r_cons_print (Color_RESET);
@@ -381,11 +381,11 @@ R_API bool r_core_visual_bit_editor(RCore *core) {
 					for (j = 0; j < 8; j++) {
 						bool bit = R_BIT_CHK (byte, 7 - j);
 						if (set && bit) {
-							r_cons_printf ("1");
+							r_cons_print ("1");
 						} else if (!set && !bit) {
-							r_cons_printf ("0");
+							r_cons_print ("0");
 						} else {
-							r_cons_printf (ws);
+							r_cons_print (ws);
 						}
 					}
 					r_cons_print (" ");
@@ -581,8 +581,8 @@ static bool sdbforcb (void *p, const char *k, const char *v) {
 						pre = ">";
 					}
 					if (use_color && *pre=='>') {
-						r_cons_printf ("%s %s %s  %s\n", color_sel,
-							Color_RESET, pre, k, v);
+						r_cons_printf ("%s"Color_RESET" %s %s  %s\n", color_sel,
+							pre, k, v);
 					} else {
 						r_cons_printf (" %s %s  %s\n",
 							pre, k, v);
@@ -2885,13 +2885,13 @@ static ut64 var_functions_show(RCore *core, int idx, int show, int cols) {
 			if (show) {
 				char *tmp;
 				if (color) {
-					var_functions = r_str_newf ("%c%c %s0x%08"PFMT64x"" Color_RESET" %4d %s%s"Color_RESET"",
+					var_functions = r_str_newf ("%c%c %s0x%08"PFMT64x"" Color_RESET" %4"PFMT64d" %s%s"Color_RESET"",
 							(seek == fcn->addr)?'>':' ',
 							(idx==i)?'*':' ',
 							color_addr, fcn->addr, r_anal_function_realsize (fcn),
 							color_fcn, fcn->name);
 				} else {
-					var_functions = r_str_newf ("%c%c 0x%08"PFMT64x" %4d %s",
+					var_functions = r_str_newf ("%c%c 0x%08"PFMT64x" %4"PFMT64d" %s",
 							(seek == fcn->addr)?'>':' ',
 							(idx==i)?'*':' ',
 							fcn->addr, r_anal_function_realsize (fcn), fcn->name);
@@ -3993,7 +3993,7 @@ onemoretime:
 			RFlagItem *item = r_flag_get_i (core->flags, off);
 			if (item) {
 				char cmd[128];
-				r_cons_printf ("Current flag size is: %d\n", item->size);
+				r_cons_printf ("Current flag size is: %" PFMT64d "\n", item->size);
 				r_cons_show_cursor (true);
 				r_cons_flush ();
 				r_line_set_prompt ("new size: ");
@@ -4299,7 +4299,7 @@ R_API void r_core_visual_colors(RCore *core) {
 		r_cons_printf ("# Selected colorscheme : %s  - Use 'hl' or left/right arrow keys to change colorscheme\n", curtheme ? curtheme : "default");
 		r_cons_printf ("# Selected element: %s  - Use 'jk' or up/down arrow keys to change element\n", k);
 		r_cons_printf ("# ec %s %s # %d (\\x1b%.*s)",
-			k, color, atoi (cstr+7), esc ? esc - cstr - 1 : strlen (cstr + 1), cstr+1);
+			k, color, atoi (cstr+7), esc ? (int)(esc - cstr - 1) : (int)strlen (cstr + 1), cstr+1);
 		if (esc) {
 			r_cons_printf (" (\\x1b%s)", esc + 1);
 		}

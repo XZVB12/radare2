@@ -96,7 +96,8 @@ static int r_debug_handle_signals(RDebug *dbg) {
 #if __KFBSD__
 	return bsd_handle_signals (dbg);
 #else
-	return -1;
+	eprintf ("Warning: signal handling is not supported on this platform\n");
+	return 0;
 #endif
 }
 #endif
@@ -533,7 +534,7 @@ static RDebugReasonType r_debug_native_wait(RDebug *dbg, int pid) {
 #if __OpenBSD__ || __NetBSD__
 			reason = R_DEBUG_REASON_BREAKPOINT;
 #else
-			if (!r_debug_handle_signals (dbg)) {
+			if (r_debug_handle_signals (dbg) != 0) {
 				return R_DEBUG_REASON_ERROR;
 			}
 			reason = dbg->reason.type;
@@ -607,7 +608,7 @@ static RList *r_debug_native_pids(RDebug *dbg, int pid) {
 #elif __linux__
 	return linux_pid_list (pid, list);
 #else /* rest is BSD */
-	return bsd_pid_list (dbg, list);
+	return bsd_pid_list (dbg, pid, list);
 #endif
 	return list;
 }
@@ -1217,8 +1218,8 @@ static int r_debug_native_init (RDebug *dbg) {
 #endif
 }
 
-static void sync_drx_regs (RDebug *dbg, drxt *regs, size_t num_regs) {
 #if __i386__ || __x86_64__
+static void sync_drx_regs (RDebug *dbg, drxt *regs, size_t num_regs) {
 	/* sanity check, we rely on this assumption */
 	if (num_regs != NUM_DRX_REGISTERS) {
 		eprintf ("drx: Unsupported number of registers for get_debug_regs\n");
@@ -1238,13 +1239,11 @@ static void sync_drx_regs (RDebug *dbg, drxt *regs, size_t num_regs) {
 */
 	regs[6] = r_reg_getv (R, "dr6");
 	regs[7] = r_reg_getv (R, "dr7");
-#else
-	eprintf ("drx sync_drx_regs: Unsupported platform\n");
-#endif
 }
+#endif
 
-static void set_drx_regs (RDebug *dbg, drxt *regs, size_t num_regs) {
 #if __i386__ || __x86_64__
+static void set_drx_regs (RDebug *dbg, drxt *regs, size_t num_regs) {
 	/* sanity check, we rely on this assumption */
 	if (num_regs != NUM_DRX_REGISTERS){
 		eprintf ("drx: Unsupported number of registers for get_debug_regs\n");
@@ -1258,10 +1257,8 @@ static void set_drx_regs (RDebug *dbg, drxt *regs, size_t num_regs) {
 	r_reg_setv (R, "dr3", regs[3]);
 	r_reg_setv (R, "dr6", regs[6]);
 	r_reg_setv (R, "dr7", regs[7]);
-#else
-	eprintf ("drx set_drx_regs: Unsupported platform\n");
-#endif
 }
+#endif
 
 static int r_debug_native_drx (RDebug *dbg, int n, ut64 addr, int sz, int rwx, int g, int api_type) {
 #if __i386__ || __x86_64__
@@ -1339,18 +1336,6 @@ static bool arm32_hwbp_add (RDebug *dbg, RBreakpoint* bp, RBreakpointItem *b) {
 
 static bool arm32_hwbp_del (RDebug *dbg, RBreakpoint *bp, RBreakpointItem *b) {
 	return false; // TODO: hwbp.del not yetimplemented
-}
-#else
-static bool ll_arm32_hwbp_set(pid_t pid, ut64 addr, int size, int wp, int type) {
-	return false;
-}
-
-static bool arm32_hwbp_add (RDebug *dbg, RBreakpoint* bp, RBreakpointItem *b) {
-	return false;
-}
-
-static bool arm32_hwbp_del (RDebug *dbg, RBreakpoint *bp, RBreakpointItem *b) {
-	return false;
 }
 #endif // PTRACE_GETHWBPREGS
 #endif // __arm

@@ -496,6 +496,7 @@ R_API R2RSubprocess *r2r_subprocess_start(
 		memcpy (argv + 1, args, sizeof (char *) * args_size);
 	}
 	// done by calloc: argv[args_size + 1] = NULL;
+	r_th_lock_enter (subprocs_mutex);
 	R2RSubprocess *proc = R_NEW0 (R2RSubprocess);
 	if (!proc) {
 		goto error;
@@ -543,7 +544,6 @@ R_API R2RSubprocess *r2r_subprocess_start(
 	}
 	proc->stderr_fd = stderr_pipe[0];
 
-	r_th_lock_enter (subprocs_mutex);
 	proc->pid = r_sys_fork ();
 	if (proc->pid == -1) {
 		// fail
@@ -611,6 +611,7 @@ error:
 	if (stdin_pipe[1] == -1) {
 		close (stdin_pipe[1]);
 	}
+	r_th_lock_leave (subprocs_mutex);
 	return NULL;
 }
 
@@ -1116,9 +1117,15 @@ R_API void r2r_asm_test_output_free(R2RAsmTestOutput *out) {
 }
 
 R_API R2RProcessOutput *r2r_run_fuzz_test(R2RRunConfig *config, R2RFuzzTest *test, R2RCmdRunner runner, void *user) {
+	const char *cmd = "aaa";
 	RList *files = r_list_new ();
 	r_list_push (files, test->file);
-	R2RProcessOutput *ret = run_r2_test (config, config->timeout_ms, "aaa", files, NULL, false, runner, user);
+#if ASAN
+	if (r_str_endswith (test->file, "/swift_read")) {
+		cmd = "?F";
+	}
+#endif
+	R2RProcessOutput *ret = run_r2_test (config, config->timeout_ms, cmd, files, NULL, false, runner, user);
 	r_list_free (files);
 	return ret;
 }
@@ -1203,6 +1210,19 @@ R_API R2RTestResultInfo *r2r_run_test(R2RRunConfig *config, R2RTest *test) {
 	}
 	}
 	bool broken = r2r_test_broken (test);
+#if ASAN
+# if !R2_ASSERT_STDOUT
+# error R2_ASSERT_STDOUT undefined or 0
+# endif
+	R2RProcessOutput *out = ret->proc_out;
+	if (!success && test->type == R2R_TEST_TYPE_CMD && strstr (test->path, "/dbg")
+	    && (!out->out ||
+	        (!strstr (out->out, "WARNING:") && !strstr (out->out, "ERROR:") && !strstr (out->out, "FATAL:")))
+	    && (!out->err ||
+	        (!strstr (out->err, "Sanitizer") && !strstr (out->err, "runtime error:")))) {
+		broken = true;
+	}
+#endif
 	if (!success) {
 		ret->result = broken ? R2R_TEST_RESULT_BROKEN : R2R_TEST_RESULT_FAILED;
 	} else {

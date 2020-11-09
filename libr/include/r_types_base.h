@@ -70,6 +70,8 @@ typedef struct _utX {
 #undef UT64_MIN
 #undef UT32_MAX
 #undef UT32_MIN
+#undef UT16_MIN
+#undef UT8_MIN
 #define ST64_MAX ((st64)0x7FFFFFFFFFFFFFFFULL)
 #define ST64_MIN ((st64)(-ST64_MAX-1))
 #define UT64_MAX 0xFFFFFFFFFFFFFFFFULL
@@ -80,6 +82,7 @@ typedef struct _utX {
 #define UT64_16U 0xFFFFFFFFFFFF0000ULL
 #define UT64_8U  0xFFFFFFFFFFFFFF00ULL
 #define UT32_MIN 0U
+#define UT16_MIN 0U
 #define UT32_GT0 0x80000000U
 #define UT32_LT0 0x7FFFFFFFU
 #define ST32_MAX 0x7FFFFFFF
@@ -167,6 +170,17 @@ typedef struct _utX {
 
 #if !defined(NAN)
 #define NAN (0.0f/0.0f)
+#endif
+
+/* A workaround against libc headers redefinition of __attribute__:
+ * Standard include has lines like
+ * #if (GCC_VERSION < 2007)
+ * # define __attribute__(x)
+ * #endif
+ * So we have do remove this define for TinyCC compiler
+ */
+#if defined(__TINYC__) && (GCC_VERSION < 2007)
+#undef __attribute__
 #endif
 
 #ifdef _MSC_VER

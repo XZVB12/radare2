@@ -111,6 +111,7 @@ R_API RIO* r_io_init(RIO* io) {
 	r_io_cache_init (io);
 	r_io_plugin_init (io);
 	r_io_undo_init (io);
+	io->event = r_event_new (io);
 	return io;
 }
 
@@ -124,7 +125,7 @@ R_API void r_io_free(RIO *io) {
 
 R_API RIODesc *r_io_open_buffer(RIO *io, RBuffer *b, int perm, int mode) {
 	ut64 bufSize = r_buf_size (b);
-	char *uri = r_str_newf ("malloc://%d", bufSize);
+	char *uri = r_str_newf ("malloc://%" PFMT64d, bufSize);
 	RIODesc *desc = r_io_open_nomap (io, uri, perm, mode);
 	if (desc) {
 		const ut8 *tmp = r_buf_data (b, &bufSize);
@@ -670,6 +671,7 @@ R_API int r_io_fini(RIO* io) {
 	if (io->runprofile) {
 		R_FREE (io->runprofile);
 	}
+	r_event_free (io->event);
 #if R_IO_USE_PTRACE_WRAP
 	if (io->ptrace_wrap) {
 		ptrace_wrap_instance_stop (io->ptrace_wrap);

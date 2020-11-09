@@ -82,10 +82,11 @@ typedef struct r_socket_http_options {
 	bool httpauth;
 } RSocketHTTPOptions;
 
-
 #define R_SOCKET_PROTO_TCP IPPROTO_TCP
 #define R_SOCKET_PROTO_UDP IPPROTO_UDP
 #define R_SOCKET_PROTO_UNIX 0x1337
+#define R_SOCKET_PROTO_NONE 0
+#define R_SOCKET_PROTO_DEFAULT R_SOCKET_PROTO_TCP
 
 #ifdef R_API
 R_API RSocket *r_socket_new_from_fd(int fd);
@@ -209,6 +210,7 @@ R_API int r_socket_rap_client_seek(RSocket *s, ut64 offset, int whence);
 typedef struct r_run_profile_t {
 	char *_args[R_RUN_PROFILE_NARGS];
 	int _argc;
+	bool _daemon;
 	char *_system;
 	char *_program;
 	char *_runlib;
@@ -256,7 +258,7 @@ R_API int r_run_config_env(RRunProfile *p);
 R_API int r_run_start(RRunProfile *p);
 R_API void r_run_reset(RRunProfile *p);
 R_API bool r_run_parsefile(RRunProfile *p, const char *b);
-R_API char *r_run_get_environ_profile(char **environ);
+R_API char *r_run_get_environ_profile(char **env);
 
 /* rapipe */
 R_API R2Pipe *rap_open(const char *cmd);

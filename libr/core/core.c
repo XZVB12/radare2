@@ -110,8 +110,6 @@ static int getreloc_tree(const void *user, const RBNode *n, void *user2) {
         return 0;
 }
 
-// TODO: Use sdb in rbin to accelerate this
-// we shuold use aligned reloc addresses instead of iterating all of them
 R_API RBinReloc *r_core_getreloc(RCore *core, ut64 addr, int size) {
         if (size < 1 || addr == UT64_MAX) {
                 return NULL;
@@ -329,6 +327,7 @@ R_API int r_core_bind(RCore *core, RCoreBind *bnd) {
 	bnd->numGet = (RCoreNumGet)numget;
 	bnd->isMapped = (RCoreIsMapped)__isMapped;
 	bnd->syncDebugMaps = (RCoreDebugMapsSync)__syncDebugMaps;
+	bnd->pjWithEncoding = (RCorePJWithEncoding)r_core_pj_new;
 	return true;
 }
 
@@ -471,7 +470,7 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 				if (ok) {
 					*ok = true;
 				}
-				ut64 dst = r_anal_fcn_label_get (core->anal, fcn, str + 1);
+				ut64 dst = r_anal_function_get_label (fcn, str + 1);
 				if (dst == UT64_MAX) {
 					dst = fcn->addr;
 				}
@@ -889,7 +888,7 @@ static const char *radare_argv[] = {
 	"ao?", "ao", "aoj", "aoe", "aor", "aos", "aom", "aod", "aoda", "aoc", "ao*",
 	"aO", "ap",
 	"ar?", "ar", "ar0", "ara?", "ara", "ara+", "ara-", "aras", "arA", "arC", "arr", "arrj", "ar=",
-	"arb", "arc", "ard", "arn", "aro", "arp?", "arp", "arpi", "arp.", "arpj", "arps",
+	"arb", "arc", "ard", "arn", "aro", "arp?", "arp", "arpi", "arpg", "arp.", "arpj", "arps",
 	"ars", "art", "arw",
 	"as?", "as", "asc", "asca", "asf", "asj", "asl", "ask",
 	"av?", "av", "avj", "av*", "avr", "avra", "avraj", "avrr", "avrD",
@@ -958,7 +957,7 @@ static const char *radare_argv[] = {
 	"ob?", "ob", "ob*", "obo", "oba", "obf", "obj", "obr", "ob-", "ob-*",
 	"oc", "of", "oi", "oj", "oL", "om", "on",
 	"oo?", "oo", "oo+", "oob", "ood", "oom", "oon", "oon+", "oonn", "oonn+",
-	"op",  "ox",
+	"op",  "opn", "opp", "opr", "ox",
 	"p?", "p-", "p=", "p2", "p3", "p6?", "p6", "p6d", "p6e", "p8?", "p8", "p8f", "p8j",
 	"pa?", "paD", "pad", "pade", "pae", "pA",
 	"pb?", "pb", "pB", "pxb", "pB?",
@@ -1293,14 +1292,11 @@ static void autocomplete_evals(RCore *core, RLineCompletion *completion, const c
 	r_return_if_fail (str);
 	RConfigNode *bt;
 	RListIter *iter;
-	char *tmp = strrchr (str, ' ');
+	const char *tmp = strrchr (str, ' ');
 	if (tmp) {
 		str = tmp + 1;
 	}
-	int n = strlen (str);
-	if (n < 1) {
-		return;
-	}
+	size_t n = strlen (str);
 	r_list_foreach (core->config->nodes, iter, bt) {
 		if (!strncmp (bt->name, str, n)) {
 			r_line_completion_push (completion, bt->name);
@@ -1946,19 +1942,25 @@ static int autocomplete(RLineCompletion *completion, RLineBuffer *buf, RLineProm
 }
 
 R_API int r_core_fgets(char *buf, int len) {
-	const char *ptr;
-	RLine *rli = r_line_singleton ();
+	RCons *cons = r_cons_singleton ();
+	RLine *rli = cons->line;
+	bool prompt = cons->context->is_interactive;
 	buf[0] = '\0';
-	r_line_completion_set (&rli->completion, radare_argc, radare_argv);
- 	rli->completion.run = autocomplete;
- 	rli->completion.run_user = rli->user;
-	ptr = r_line_readline ();
+	if (prompt) {
+		r_line_completion_set (&rli->completion, radare_argc, radare_argv);
+		rli->completion.run = autocomplete;
+		rli->completion.run_user = rli->user;
+	} else {
+		rli->history.data = NULL;
+		r_line_completion_set (&rli->completion, 0, NULL);
+		rli->completion.run = NULL;
+		rli->completion.run_user = NULL;
+	}
+	const char *ptr = r_line_readline ();
 	if (!ptr) {
 		return -1;
 	}
-	strncpy (buf, ptr, len - 1);
-	buf[len - 1] = 0;
-	return strlen (buf);
+	return r_str_ncpy (buf, ptr, len - 1);
 }
 
 static const char *r_core_print_offname(void *p, ut64 addr) {
@@ -2145,7 +2147,7 @@ static char *r_core_anal_hasrefs_to_depth(RCore *core, ut64 value, int depth) {
 			r_strbuf_appendf (s, " %slibrary%s", c, cend);
 		}
 		if (type & R_ANAL_ADDR_TYPE_ASCII) {
-			r_strbuf_appendf (s, " %sascii%s ('%c')", c, cend, value);
+			r_strbuf_appendf (s, " %sascii%s ('%c')", c, cend, (char)value);
 		}
 		if (type & R_ANAL_ADDR_TYPE_SEQUENCE) {
 			r_strbuf_appendf (s, " %ssequence%s", c, cend);
@@ -2219,7 +2221,7 @@ static char *r_core_anal_hasrefs_to_depth(RCore *core, ut64 value, int depth) {
 		ut64 *n64 = (ut64*)buf;
 		r_io_read_at (core->io, value, buf, sizeof (buf));
 		ut64 n = (core->rasm->bits == 64)? *n64: *n32;
-		if(n != value) {
+		if (n != value) {
 			char* rrstr = r_core_anal_hasrefs_to_depth (core, n, depth-1);
 			if (rrstr) {
 				if (rrstr[0]) {
@@ -2290,11 +2292,12 @@ static int mywrite(const ut8 *buf, int len) {
 }
 
 static bool exists_var(RPrint *print, ut64 func_addr, char *str) {
-	char *name_key = sdb_fmt ("var.0x%"PFMT64x ".%d.%s", func_addr, 1, str);
-	if (sdb_const_get_len (((RCore*)(print->user))->anal->sdb_fcns, name_key, NULL, 0)) {
-		return true;
+	RAnal *anal = ((RCore*)(print->user))->anal;
+	RAnalFunction *fcn = r_anal_get_function_at (anal, func_addr);
+	if (!fcn) {
+		return false;
 	}
-	return false;
+	return !!r_anal_function_get_var_byname (fcn, str);
 }
 
 static bool r_core_anal_log(struct r_anal_t *anal, const char *msg) {
@@ -2354,9 +2357,9 @@ static void __init_autocomplete_default (RCore* core) {
 	};
 	const char *files[] = {
 		".", "..", ".*", "/F", "/m", "!", "!!", "#!c", "#!v", "#!cpipe", "#!vala",
-		"#!rust", "#!zig", "#!pipe", "#!python", "aeli", "arp", "dmd", "drp", "o",
+		"#!rust", "#!zig", "#!pipe", "#!python", "aeli", "arp", "arpg", "dmd", "drp", "drpg", "o",
 		"idp", "idpi", "L", "obf", "o+", "oc", "r2", "rabin2", "rasm2", "rahash2", "rax2",
-		"rafind2", "cd", "on", "op", "wf", "rm", "wF", "wp", "Sd", "Sl", "to", "pm",
+		"rafind2", "cd", "ls", "on", "op", "wf", "rm", "wF", "wp", "Sd", "Sl", "to", "pm",
 		"/m", "zos", "zfd", "zfs", "zfz", "cat", "wta", "wtf", "wxf", "dml", "vi",
 		"less", "head", "tail", NULL
 	};
@@ -2528,6 +2531,18 @@ static int win_eprintf(const char *format, ...) {
 }
 #endif
 
+static void ev_iowrite_cb(REvent *ev, int type, void *user, void *data) {
+	RCore *core = user;
+	REventIOWrite *iow = data;
+	if (r_config_get_i (core->config, "anal.detectwrites")) {
+		r_anal_update_analysis_range (core->anal, iow->addr, iow->len);
+		if (core->cons->event_resize && core->cons->event_data) {
+			// Force a reload of the graph
+			core->cons->event_resize (core->cons->event_data);
+		}
+	}
+}
+
 R_API bool r_core_init(RCore *core) {
 	core->blocksize = R_CORE_BLOCKSIZE;
 	core->block = (ut8 *)calloc (R_CORE_BLOCKSIZE + 1, 1);
@@ -2651,6 +2666,7 @@ R_API bool r_core_init(RCore *core) {
 	core->bin->cb_printf = (PrintfCallback) r_cons_printf;
 	r_bin_set_user_ptr (core->bin, core);
 	core->io = r_io_new ();
+	r_event_hook (core->io->event, R_EVENT_IO_WRITE, ev_iowrite_cb, core);
 	core->io->ff = 1;
 	core->search = r_search_new (R_SEARCH_KEYWORD);
 	r_io_undo_enable (core->io, 1, 0); // TODO: configurable via eval
@@ -2684,7 +2700,7 @@ R_API bool r_core_init(RCore *core) {
 	core->anal->flg_fcn_set = core_flg_fcn_set;
 	r_anal_bind (core->anal, &(core->parser->analb));
 	core->parser->flag_get = r_core_flag_get_by_spaces;
-	core->parser->label_get = r_anal_fcn_label_at;
+	core->parser->label_get = r_anal_function_get_label_at;
 
 	r_core_bind (core, &(core->anal->coreb));
 
@@ -3476,7 +3492,9 @@ R_API char *r_core_editor(const RCore *core, const char *file, const char *str) 
 		cons->cb_editor = tmp;
 	} else {
 		if (editor && name) {
-			r_sys_cmdf ("%s '%s'", editor, name);
+			char *escaped_name = r_str_escape_sh (name);
+			r_sys_cmdf ("%s \"%s\"", editor, escaped_name);
+			free (escaped_name);
 		}
 	}
 	size_t len = 0;
@@ -3668,4 +3686,30 @@ R_API RTable *r_core_table(RCore *core) {
 		table->cons = core->cons;
 	}
 	return table;
+}
+
+/* Config helper function for PJ json encodings */
+R_API PJ *r_core_pj_new(RCore *core) {
+	const char *config_string_encoding = r_config_get (core->config, "cfg.json.str");
+	const char *config_num_encoding = r_config_get (core->config, "cfg.json.num");
+	PJEncodingNum number_encoding = PJ_ENCODING_NUM_DEFAULT;
+	PJEncodingStr string_encoding = PJ_ENCODING_STR_DEFAULT;
+
+	if (!strcmp ("string", config_num_encoding)) {
+		number_encoding = PJ_ENCODING_NUM_STR;
+	} else if (!strcmp ("hex", config_num_encoding)) {
+		number_encoding = PJ_ENCODING_NUM_HEX;
+	}
+
+	if (!strcmp ("base64", config_string_encoding)) {
+		string_encoding = PJ_ENCODING_STR_BASE64;
+	} else if (!strcmp ("hex", config_string_encoding)) {
+		string_encoding = PJ_ENCODING_STR_HEX;
+	} else if (!strcmp ("array", config_string_encoding)) {
+		string_encoding = PJ_ENCODING_STR_ARRAY;
+	} else if (!strcmp ("strip", config_string_encoding)) {
+		string_encoding = PJ_ENCODING_STR_STRIP;
+	}
+
+	return pj_new_with_encoding (string_encoding, number_encoding);
 }

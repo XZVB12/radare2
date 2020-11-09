@@ -15,10 +15,12 @@ static const char *help_msg_c[] = {
 	"ccc", " [at]", "Same as above, but only showing different lines",
 	"ccd", " [at]", "Compares in two disasm columns of block size",
 	"ccdd", " [at]", "Compares decompiler output (e cmd.pdc=pdg|pdd)",
+	"cd", " [dir]", "chdir",
 	// "cc", " [offset]", "code bindiff current block against offset"
 	// "cD", " [file]", "like above, but using radiff -b",
 	"cf", " [file]", "Compare contents of file at current seek",
 	"cg", "[?] [o] [file]", "Graphdiff current file and [file]",
+	"cl|cls|clear", "", "Clear screen, (clear0 to goto 0, 0 only)",
 	"cu", "[?] [addr] @at", "Compare memory hexdumps of $$ and dst in unified diff",
 	"cud", " [addr] @at", "Unified diff disasm from $$ and given address",
 	"cv", "[1248] [hexpairs] @at", "Compare 1,2,4,8-byte (silent return in $?)",
@@ -27,9 +29,6 @@ static const char *help_msg_c[] = {
 	"cx", " [hexpair]", "Compare hexpair string (use '.' as nibble wildcard)",
 	"cx*", " [hexpair]", "Compare hexpair string (output r2 commands)",
 	"cX", " [addr]", "Like 'cc' but using hexdiff output",
-	"", "", "",
-	"cd", " [dir]", "chdir",
-	"cl|cls|clear", "", "Clear screen, (clear0 to goto 0, 0 only)",
 	NULL
 };
 
@@ -407,14 +406,14 @@ static int cmd_cmp_disasm(RCore *core, const char *input, int mode) {
 				colpad[pos] = 0;
 			}
 			if (hascolor) {
-				r_cons_printf (iseq? pal->graph_true: pal->graph_false);
+				r_cons_print (iseq? pal->graph_true: pal->graph_false);
 			}
 			r_cons_printf (" 0x%08"PFMT64x "  %s %s",
 				core->offset + i, r_strbuf_get (&op.buf_asm), colpad);
 			r_cons_printf ("%c 0x%08"PFMT64x "  %s\n",
 				iseq? '=': '!', off + j, r_strbuf_get (&op2.buf_asm));
 			if (hascolor) {
-				r_cons_printf (Color_RESET);
+				r_cons_print (Color_RESET);
 			}
 			if (op.size < 1) {
 				op.size = 1;
@@ -445,17 +444,17 @@ static int cmd_cmp_disasm(RCore *core, const char *input, int mode) {
 					core->offset + i, r_strbuf_get (&op.buf_asm));
 			} else {
 				if (hascolor) {
-					r_cons_printf (pal->graph_false);
+					r_cons_print (pal->graph_false);
 				}
 				r_cons_printf ("-0x%08"PFMT64x "  %s\n",
 					core->offset + i, r_strbuf_get (&op.buf_asm));
 				if (hascolor) {
-					r_cons_printf (pal->graph_true);
+					r_cons_print (pal->graph_true);
 				}
 				r_cons_printf ("+0x%08"PFMT64x "  %s\n",
 					off + j, r_strbuf_get (&op2.buf_asm));
 				if (hascolor) {
-					r_cons_printf (Color_RESET);
+					r_cons_print (Color_RESET);
 				}
 			}
 			if (op.size < 1) {
