@@ -68,7 +68,7 @@ SDB_API int sdb_queryf (Sdb *s, const char *fmt, ...) {
         return ret;
 }
 
-SDB_API char *sdb_querysf (Sdb *s, char *buf, size_t buflen, const char *fmt, ...) {
+SDB_API char *sdb_querysf(Sdb *s, char *buf, size_t buflen, const char *fmt, ...) {
         char string[4096];
         char *ret;
         va_list ap;
@@ -753,11 +753,11 @@ next_quote:
 				*json++ = 0;
 				ok = sdb_json_set (s, cmd, json, val, 0);
 			} else {
-				while (*val && isspace (*val)) {
+				while (*val && isspace ((unsigned char)*val)) {
 					val++;
 				}
 				int i = strlen (cmd) - 1;
-				while (i >= 0 && isspace (cmd[i])) {
+				while (i >= 0 && isspace ((unsigned char)cmd[i])) {
 					cmd[i] = '\0';
 					i--;
 				}

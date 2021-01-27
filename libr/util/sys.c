@@ -148,7 +148,11 @@ R_API int r_sys_fork(void) {
 #endif
 }
 
-#if HAVE_SIGACTION
+#if __WINDOWS__
+R_API int r_sys_sigaction(int *sig, void (*handler) (int)) {
+	return -1;
+}
+#elif HAVE_SIGACTION
 R_API int r_sys_sigaction(int *sig, void (*handler) (int)) {
 	struct sigaction sigact = { };
 	int ret, i;
@@ -171,7 +175,6 @@ R_API int r_sys_sigaction(int *sig, void (*handler) (int)) {
 			return ret;
 		}
 	}
-
 	return 0;
 }
 #else
@@ -758,6 +761,7 @@ R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, 
 		} else {
 			free (outputptr);
 		}
+		free (mysterr);
 		return ret;
 	}
 	return false;
@@ -906,7 +910,7 @@ R_API void r_sys_perror_str(const char *fun) {
 			0, NULL )) {
 		char *err = r_sys_conv_win_to_utf8 (lpMsgBuf);
 		if (err) {
-			eprintf ("%s: (%#x) %s%s", fun, dw, err,
+			eprintf ("%s: (%#lx) %s%s", fun, dw, err,
 			         r_str_endswith (err, "\n") ? "" : "\n");
 			free (err);
 		}
@@ -1058,18 +1062,6 @@ R_API int r_sys_run_rop(const ut8 *buf, int len) {
 #endif
 	free (bufptr);
 	return 0;
-}
-
-R_API bool r_is_heap (void *p) {
-	void *q = malloc (8);
-	ut64 mask = UT64_MAX;
-	ut64 addr = (ut64)(size_t)q;
-	addr >>= 16;
-	addr <<= 16;
-	mask >>= 16;
-	mask <<= 16;
-	free (q);
-	return (((ut64)(size_t)p) == mask);
 }
 
 R_API char *r_sys_pid_to_path(int pid) {
@@ -1236,15 +1228,18 @@ R_API void r_sys_set_environ(char **e) {
 	env = e;
 }
 
-R_API char *r_sys_whoami (char *buf) {
-	char _buf[32];
-	int pid = getpid ();
-	int hasbuf = (buf)? 1: 0;
-	if (!hasbuf) {
-		buf = _buf;
+R_API char *r_sys_whoami(void) {
+	char buf[32];
+#if __WINDOWS__
+	DWORD buf_sz = sizeof (buf);
+	if (!GetUserName(buf, (LPDWORD)&buf_sz) ) {
+		return strdup ("?");
 	}
-	sprintf (buf, "pid%d", pid);
-	return hasbuf? buf: strdup (buf);
+#else
+	int uid = getuid ();
+	snprintf (buf, sizeof (buf), "uid%d", uid);
+#endif
+	return strdup (buf);
 }
 
 R_API int r_sys_getpid(void) {
@@ -1321,7 +1316,7 @@ R_API RSysInfo *r_sys_info(void) {
 	if (!si) {
 		return NULL;
 	}
-	
+
 	if (RegOpenKeyExA (HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0,
 		KEY_QUERY_VALUE, &key) != ERROR_SUCCESS) {
 		r_sys_perror ("r_sys_info/RegOpenKeyExA");
@@ -1356,7 +1351,7 @@ R_API RSysInfo *r_sys_info(void) {
 		|| type != REG_SZ) {
 		goto beach;
 	}
-	si->version = r_str_newf ("%d.%d.%s", major, minor, tmp);
+	si->version = r_str_newf ("%lu.%lu.%s", major, minor, tmp);
 
 	size = sizeof (tmp);
 	if (RegQueryValueExA (key, "ReleaseId", NULL, &type,

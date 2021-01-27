@@ -218,6 +218,7 @@ subdir('libr')
 
 conf_data = configuration_data()
 conf_data.set('plugins_core', '&r_core_plugin_' + ', &r_core_plugin_'.join(core_plugins) + ', 0')
+conf_data.set('plugins_esil', '&r_esil_plugin_' + ', &r_esil_plugin_'.join(esil_plugins) + ', 0')
 conf_data.set('plugins_anal', '&r_anal_plugin_' + ', &r_anal_plugin_'.join(anal_plugins) + ', 0')
 conf_data.set('plugins_asm', '&r_asm_plugin_' + ', &r_asm_plugin_'.join(asm_plugins) + ', 0')
 conf_data.set('plugins_bp', '&r_bp_plugin_' + ', &r_bp_plugin_'.join(bp_plugins) + ', 0')
@@ -260,7 +261,8 @@ else
 endif
 
 # handle openssl library
-sys_openssl = dependency('openssl', required: false)
+static_sys_openssl = get_option('static_sys_openssl')
+sys_openssl = dependency('openssl', required: false, static: static_sys_openssl)
 use_sys_openssl = false
 if sys_openssl.found() and get_option('use_sys_openssl')
   message('Using system openssl library')
@@ -470,7 +472,8 @@ sdb_files = [
   'shlr/sdb/src/query.c',
   'shlr/sdb/src/sdb.c',
   'shlr/sdb/src/sdbht.c',
-  'shlr/sdb/src/util.c'
+  'shlr/sdb/src/util.c',
+  'shlr/sdb/src/text.c'
 ]
 
 sdb_inc = [platform_inc, include_directories('shlr/sdb/src')]
@@ -506,7 +509,7 @@ install_headers(sdb_inc_files, install_dir: join_paths(r2_incdir, 'sdb'))
 libr2sdb = static_library('r2sdb', sdb_files,
   include_directories: sdb_inc,
   implicit_include_directories: false,
-  c_args: host_machine.system() == 'windows' ? '-DSDB_API=__declspec(dllexport)' : [],
+  c_args: host_machine.system() == 'windows' ? '-DSDB_IPI= -DSDB_API=__declspec(dllexport)' : [],
 )
 
 sdb_dep = declare_dependency(
@@ -666,9 +669,7 @@ endif
 subdir('test/unit')
 
 install_data(
-  'doc/fortunes.creepy',
   'doc/fortunes.fun',
-  'doc/fortunes.nsfw',
   'doc/fortunes.tips',
   install_dir: r2_fortunes
 )

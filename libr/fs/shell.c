@@ -124,9 +124,7 @@ R_API int r_fs_shell_prompt(RFSShell* shell, RFS* fs, const char* root) {
 			r_list_free (list);
 			if (buf[2] == ' ') {
 				if (buf[3] != '/') {
-					strncpy (str, path, sizeof (str) - 1);
-					strcat (str, "/");
-					strncat (str, buf + 3, sizeof (buf) - 1);
+					snprintf (str, sizeof (str), "%s/%s", path, buf + 3);
 					list = r_fs_dir (fs, str);
 				} else {
 					list = r_fs_dir (fs, buf + 3);
@@ -212,8 +210,8 @@ R_API int r_fs_shell_prompt(RFSShell* shell, RFS* fs, const char* root) {
 			} else {
 				strncpy (str, path, sizeof (str) - 1);
 			}
-			strncat (str, "/",   sizeof (str) - strlen (str) - 1);
-			strncat (str, input, sizeof (str) - strlen (str) - 1);
+			size_t n = strlen (str);
+			snprintf (str + n, sizeof (str) - n, "/%s", input);
 			char *p = strchr (str, '>');
 			if (p) {
 				*p = 0;
@@ -274,11 +272,11 @@ R_API int r_fs_shell_prompt(RFSShell* shell, RFS* fs, const char* root) {
 				r_file_dump (input, file->data, file->size, 0);
 				r_fs_close (fs, file);
 			} else {
-				input -= 2; //OMFG!!!! O_O
-				memcpy (input, "./", 2);
-				if (!r_fs_dir_dump (fs, s, input)) {
+				char *f = r_str_newf ("./%s", input);
+				if (!r_fs_dir_dump (fs, s, f)) {
 					eprintf ("Cannot open file\n");
 				}
+				free (f);
 			}
 			free (s);
 		} else if (!memcmp (buf, "help", 4) || !strcmp (buf, "?")) {

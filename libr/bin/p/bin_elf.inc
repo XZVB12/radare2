@@ -923,8 +923,8 @@ static RList* patch_relocs(RBin *b) {
 	void **it;
 	r_pvector_foreach (&io->maps, it) {
 		RIOMap *map = *it;
-		if (map->itv.addr > offset) {
-			offset = map->itv.addr;
+		if (r_io_map_begin (map) > offset) {
+			offset = r_io_map_begin (map);
 			g = map;
 		}
 	}
@@ -1118,21 +1118,21 @@ static RBinInfo* info(RBinFile *bf) {
 	if (!(str = Elf_(r_bin_elf_get_head_flag) (obj))) {
 		free (ret);
 		return NULL;
-	}    
+	}
 	ret->head_flag = str;
 	if (!(str = Elf_(r_bin_elf_get_arch) (obj))) {
 		free (ret);
 		return NULL;
 	}
 	ret->arch = str;
-	
+
 	if ((str = Elf_(r_bin_elf_get_cpu) (obj))) {
-		ret->cpu = str;         
+		ret->cpu = str;
 	}
 	if ((str = Elf_(r_bin_elf_get_abi) (obj))) {
 		ret->features = str;
 	}
-	
+
 	ret->rclass = strdup ("elf");
 	ret->bits = Elf_(r_bin_elf_get_bits) (obj);
 	if (!strcmp (ret->arch, "avr")) {
@@ -1164,7 +1164,7 @@ static RList* fields(RBinFile *bf) {
 	}
 
 	#define ROW(nam, siz, val, fmt) \
-		r_list_append (ret, r_bin_field_new (addr, addr, siz, nam, sdb_fmt ("0x%08x", val), fmt, false));
+		r_list_append (ret, r_bin_field_new (addr, addr, siz, nam, sdb_fmt ("0x%08"PFMT64x, (ut64)val), fmt, false));
 	if (r_buf_size (bf->buf) < sizeof (Elf_ (Ehdr))) {
 		return ret;
 	}
@@ -1184,13 +1184,30 @@ static RList* fields(RBinFile *bf) {
 		ROW ("PhOff", 4, r_buf_read_le32_at (bf->buf, addr), "x");
 		addr += 0x4;
 		ROW ("ShOff", 4, r_buf_read_le32_at (bf->buf, addr), "x");
+		addr += 0x4;
 	} else {
 		ROW ("Entry point", 8, r_buf_read_le64_at (bf->buf, addr), "x");
 		addr += 0x8;
 		ROW ("PhOff", 8, r_buf_read_le64_at (bf->buf, addr), "x");
 		addr += 0x8;
 		ROW ("ShOff", 8, r_buf_read_le64_at (bf->buf, addr), "x");
+		addr += 0x8;
 	}
+
+	ROW ("Flags", 4, r_buf_read_le32_at (bf->buf, addr), "x");
+	addr += 0x4;
+	ROW ("EhSize", 2, r_buf_read_le16_at (bf->buf, addr), "x");
+	addr += 0x2;
+	ROW ("PhentSize", 2, r_buf_read_le16_at (bf->buf, addr), "x");
+	addr += 0x2;
+	ROW ("PhNum", 2, r_buf_read_le16_at (bf->buf, addr), "x");
+	addr += 0x2;
+	ROW ("ShentSize", 2, r_buf_read_le16_at (bf->buf, addr), "x");
+	addr += 0x2;
+	ROW ("ShNum", 2, r_buf_read_le16_at (bf->buf, addr), "x");
+	addr += 0x2;
+	ROW ("ShrStrndx", 2, r_buf_read_le16_at (bf->buf, addr), "x");
+
 	return ret;
 }
 

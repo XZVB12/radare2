@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2011-2020 - pancake, Oddcoder */
+/* radare - LGPL - Copyright 2011-2021 - pancake, Oddcoder */
 
 /* Universal calling convention implementation based on sdb */
 
@@ -6,6 +6,7 @@
 #define DB anal->sdb_cc
 
 R_API void r_anal_cc_del(RAnal *anal, const char *name) {
+	r_return_if_fail (anal && name);
 	size_t i;
 	RStrBuf sb;
 	sdb_unset (DB, r_strbuf_initf (&sb, "%s", name), 0);
@@ -20,6 +21,7 @@ R_API void r_anal_cc_del(RAnal *anal, const char *name) {
 }
 
 R_API bool r_anal_cc_set(RAnal *anal, const char *expr) {
+	r_return_val_if_fail (anal && expr, false);
 	char *e = strdup (expr);
 	char *p = strchr (e, '(');
 	if (!p) {
@@ -68,7 +70,47 @@ R_API bool r_anal_cc_set(RAnal *anal, const char *expr) {
 	return true;
 }
 
+R_API bool r_anal_cc_once(RAnal *anal) {
+	return sdb_add (DB, "warn", "once", 0);
+}
+
+R_API void r_anal_cc_get_json(RAnal *anal, PJ *pj, const char *name) {
+	r_return_if_fail (anal && pj && name);
+	int i;
+	// get cc by name and print the expr
+	if (r_str_cmp (sdb_const_get (DB, name, 0), "cc", -1)) {
+		return;
+	}
+	const char *ret = sdb_const_get (DB, sdb_fmt ("cc.%s.ret", name), 0);
+	if (!ret) {
+		return;
+	}
+	pj_ks (pj, "ret", ret);
+	char *sig = r_anal_cc_get (anal, name);
+	pj_ks (pj, "signature", sig);
+	free (sig);
+	pj_ka (pj, "args");
+	for (i = 0; i < R_ANAL_CC_MAXARG; i++) {
+		const char *k = sdb_fmt ("cc.%s.arg%d", name, i);
+		const char *arg = sdb_const_get (DB, k, 0);
+		if (!arg) {
+			break;
+		}
+		pj_s (pj, arg);
+	}
+	pj_end (pj);
+	const char *argn = sdb_const_get (DB, sdb_fmt ("cc.%s.argn", name), 0);
+	if (argn) {
+		pj_ks (pj, "argn", argn);
+	}
+	const char *error = r_anal_cc_error (anal, name);
+	if (error) {
+		pj_ks (pj, "error", error);
+	}
+}
+
 R_API char *r_anal_cc_get(RAnal *anal, const char *name) {
+	r_return_val_if_fail (anal && name, NULL);
 	int i;
 	// get cc by name and print the expr
 	if (r_str_cmp (sdb_const_get (DB, name, 0), "cc", -1)) {
@@ -82,7 +124,7 @@ R_API char *r_anal_cc_get(RAnal *anal, const char *name) {
 	}
 	RStrBuf *sb = r_strbuf_new (NULL);
 	const char *self = r_anal_cc_self (anal, name);
-	r_strbuf_appendf (sb, "%s %s%s%s (", ret, self? self: "", self? ".": "", name);
+	r_strbuf_appendf (sb, "%s %s%s%s (", ret, r_str_get (self), self? ".": "", name);
 	bool isFirst = true;
 	for (i = 0; i < R_ANAL_CC_MAXARG; i++) {
 		const char *k = sdb_fmt ("cc.%s.arg%d", name, i);
@@ -138,6 +180,7 @@ R_API const char *r_anal_cc_self(RAnal *anal, const char *convention) {
 }
 
 R_API void r_anal_cc_set_self(RAnal *anal, const char *convention, const char *self) {
+	r_return_if_fail (anal && convention && self);
 	if (!r_anal_cc_exist (anal, convention)) {
 		return;
 	}
@@ -154,6 +197,7 @@ R_API const char *r_anal_cc_error(RAnal *anal, const char *convention) {
 }
 
 R_API void r_anal_cc_set_error(RAnal *anal, const char *convention, const char *error) {
+	r_return_if_fail (anal && convention && error);
 	if (!r_anal_cc_exist (anal, convention)) {
 		return;
 	}
@@ -194,6 +238,21 @@ R_API const char *r_anal_cc_ret(RAnal *anal, const char *convention) {
 R_API const char *r_anal_cc_default(RAnal *anal) {
 	r_return_val_if_fail (anal, NULL);
 	return sdb_const_get (DB, "default.cc", 0);
+}
+
+R_API void r_anal_set_cc_default(RAnal *anal, const char *cc) {
+	r_return_if_fail (anal && cc);
+	sdb_set (DB, "default.cc", cc, 0);
+}
+
+R_API const char *r_anal_syscc_default(RAnal *anal) {
+	r_return_val_if_fail (anal, NULL);
+	return sdb_const_get (DB, "default.syscc", 0);
+}
+
+R_API void r_anal_set_syscc_default(RAnal *anal, const char *cc) {
+	r_return_if_fail (anal && cc);
+	sdb_set (DB, "default.syscc", cc, 0);
 }
 
 R_API const char *r_anal_cc_func(RAnal *anal, const char *func_name) {

@@ -330,9 +330,9 @@ static bool parse_segments(struct MACH0_(obj_t) *bin, ut64 off) {
 	bin->segs[j].flags = r_read_ble32 (&segcom[i], bin->big_endian);
 
 #if R_BIN_MACH064
-	sdb_num_set (bin->kv, sdb_fmt ("mach0_segment64_%d.offset", j), off, 0);
+	sdb_num_set (bin->kv, sdb_fmt ("mach0_segment64_%zu.offset", j), off, 0);
 #else
-	sdb_num_set (bin->kv, sdb_fmt ("mach0_segment_%d.offset", j), off, 0);
+	sdb_num_set (bin->kv, sdb_fmt ("mach0_segment_%zu.offset", j), off, 0);
 #endif
 
 	sdb_num_set (bin->kv, "mach0_segments.count", 0, 0);
@@ -393,11 +393,14 @@ static bool parse_segments(struct MACH0_(obj_t) *bin, ut64 off) {
 			memcpy (&bin->sects[k].segname, &sec[i], 16);
 			i += 16;
 
-			sdb_num_set (bin->kv, sdb_fmt ("mach0_section_%.16s_%.16s.offset", &bin->sects[k].segname, &bin->sects[k].sectname), offset, 0);
+			sdb_num_set (bin->kv, sdb_fmt ("mach0_section_%.16s_%.16s.offset",
+						bin->sects[k].segname, bin->sects[k].sectname), offset, 0);
 #if R_BIN_MACH064
-			sdb_set (bin->kv, sdb_fmt ("mach0_section_%.16s_%.16s.format", &bin->sects[k].segname, &bin->sects[k].sectname), "mach0_section64", 0);
+			sdb_set (bin->kv, sdb_fmt ("mach0_section_%.16s_%.16s.format",
+						bin->sects[k].segname, bin->sects[k].sectname), "mach0_section64", 0);
 #else
-			sdb_set (bin->kv, sdb_fmt ("mach0_section_%.16s_%.16s.format", &bin->sects[k].segname, &bin->sects[k].sectname), "mach0_section", 0);
+			sdb_set (bin->kv, sdb_fmt ("mach0_section_%.16s_%.16s.format",
+						bin->sects[k].segname, bin->sects[k].sectname), "mach0_section", 0);
 #endif
 
 #if R_BIN_MACH064
@@ -2287,13 +2290,11 @@ RList *MACH0_(get_segments)(RBinFile *bf) {
 
 // XXX this function is called so many times
 struct section_t *MACH0_(get_sections)(struct MACH0_(obj_t) *bin) {
+	r_return_val_if_fail (bin, NULL);
 	struct section_t *sections;
-	char segname[32], sectname[32], raw_segname[17];
+	char sectname[64], raw_segname[17];
 	size_t i, j, to;
 
-	if (!bin) {
-		return NULL;
-	}
 	/* for core files */
 	if (bin->nsects < 1 && bin->nsegs > 0) {
 		struct MACH0_(segment_command) *seg;
@@ -2338,11 +2339,7 @@ struct section_t *MACH0_(get_sections)(struct MACH0_(obj_t) *bin) {
 		sections[i].flags = bin->sects[i].flags;
 		r_str_ncpy (sectname, bin->sects[i].sectname, 17);
 		r_str_filter (sectname, -1);
-		// hack to support multiple sections with same name
-		// snprintf (segname, sizeof (segname), "%d", i); // wtf
-		memcpy (raw_segname, bin->sects[i].segname, 16);
-		raw_segname[16] = 0;
-		snprintf (segname, sizeof (segname), "%zd.%s", i, raw_segname);
+		r_str_ncpy (raw_segname, bin->sects[i].segname, 16);
 		for (j = 0; j < bin->nsegs; j++) {
 			if (sections[i].addr >= bin->segs[j].vmaddr &&
 				sections[i].addr < (bin->segs[j].vmaddr + bin->segs[j].vmsize)) {
@@ -2350,11 +2347,8 @@ struct section_t *MACH0_(get_sections)(struct MACH0_(obj_t) *bin) {
 				break;
 			}
 		}
-		// XXX: if two sections have the same name are merged :O
-		// XXX: append section index in flag name maybe?
-		// XXX: do not load out of bound sections?
-		// XXX: load segments instead of sections? what about PAGEZERO and ...
-		snprintf (sections[i].name, sizeof (sections[i].name), "%s.%s", segname, sectname);
+		snprintf (sections[i].name, sizeof (sections[i].name),
+			"%d.%s.%s", (int)i, raw_segname, sectname);
 		sections[i].last = 0;
 	}
 	sections[i].last = 1;
@@ -2438,6 +2432,7 @@ static int inSymtab(HtPP *hash, const char *name, ut64 addr) {
 		return true;
 	}
 	ht_pp_insert (hash, key, "1");
+	free (key);
 	return false;
 }
 
@@ -2511,13 +2506,13 @@ static int walk_exports(struct MACH0_(obj_t) *bin, RExportsIterator iterator, vo
 		}
 		if (len) {
 			ut64 flags = read_uleb128 (&p, end);
-		if (flags == UT64_MAX) {
-			break;
-		}
+			if (flags == UT64_MAX) {
+				break;
+			}
 			ut64 offset = read_uleb128 (&p, end);
-		if (offset == UT64_MAX) {
-			break;
-		}
+			if (offset == UT64_MAX) {
+				break;
+			}
 			ut64 resolver = 0;
 			bool isReexport = flags & EXPORT_SYMBOL_FLAGS_REEXPORT;
 			bool hasResolver = flags & EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER;
@@ -2570,7 +2565,7 @@ static int walk_exports(struct MACH0_(obj_t) *bin, RExportsIterator iterator, vo
 			goto beach;
 		}
 		if (state->i == child_count) {
-			r_list_pop (states);
+			free (r_list_pop (states));
 			continue;
 		}
 		if (!state->next_child) {
@@ -3153,6 +3148,7 @@ static void parse_relocation_info(struct MACH0_(obj_t) *bin, RSkipList * relocs,
 
 		struct reloc_t *reloc = R_NEW0 (struct reloc_t);
 		if (!reloc) {
+			free (sym_name);
 			return;
 		}
 
@@ -3165,7 +3161,9 @@ static void parse_relocation_info(struct MACH0_(obj_t) *bin, RSkipList * relocs,
 		reloc->size = a_info.r_length;
 		r_str_ncpy (reloc->name, sym_name, sizeof (reloc->name) - 1);
 		r_skiplist_insert (relocs, reloc);
+		free (sym_name);
 	}
+	free (info);
 }
 
 static bool is_valid_ordinal_table_size(ut64 size) {
@@ -3527,7 +3525,7 @@ RSkipList *MACH0_(get_relocs)(struct MACH0_(obj_t) *bin) {
 			}
 			if (parse_import_ptr (bin, reloc, bin->dysymtab.iundefsym + j)) {
 				reloc->ord = j;
-				r_skiplist_insert (relocs, reloc);
+				r_skiplist_insert_autofree (relocs, reloc);
 			} else {
 				R_FREE (reloc);
 			}
@@ -4040,7 +4038,7 @@ void MACH0_(mach_headerfields)(RBinFile *bf) {
 	}
 	for (n = 0; n < mh->ncmds; n++) {
 		READWORD ();
-		int lcType = word;
+		ut32 lcType = word;
 		const char *pf_definition = cmd_to_pf_definition (lcType);
 		if (pf_definition) {
 			cb_printf ("pf.%s @ 0x%08"PFMT64x"\n", pf_definition, pvaddr - 4);
@@ -4089,7 +4087,7 @@ void MACH0_(mach_headerfields)(RBinFile *bf) {
 		}
 		case LC_MAIN:
 			{
-				ut8 data[64];
+				ut8 data[64] = {0};
 				r_buf_read_at (buf, addr, data, sizeof (data));
 #if R_BIN_MACH064
 				ut64 ep = r_read_ble64 (&data, false); //  bin->big_endian);
@@ -4108,11 +4106,11 @@ void MACH0_(mach_headerfields)(RBinFile *bf) {
 #if 0
 			{
 			char *id = r_buf_get_string (buf, addr + 20);
-			cb_printf ("0x%08"PFMT64x"  id         0x%x\n", addr + 20, id? id: "");
-			cb_printf ("0x%08"PFMT64x"  symooff    0x%x\n", addr + 20, id? id: "");
-			cb_printf ("0x%08"PFMT64x"  nsyms      %d\n", addr + 20, id? id: "");
-			cb_printf ("0x%08"PFMT64x"  stroff     0x%x\n", addr + 20, id? id: "");
-			cb_printf ("0x%08"PFMT64x"  strsize    0x%x\n", addr + 20, id? id: "");
+			cb_printf ("0x%08"PFMT64x"  id         0x%x\n", addr + 20, r_str_get (id));
+			cb_printf ("0x%08"PFMT64x"  symooff    0x%x\n", addr + 20, r_str_get (id));
+			cb_printf ("0x%08"PFMT64x"  nsyms      %d\n", addr + 20, r_str_get (id));
+			cb_printf ("0x%08"PFMT64x"  stroff     0x%x\n", addr + 20, r_str_get (id));
+			cb_printf ("0x%08"PFMT64x"  strsize    0x%x\n", addr + 20, r_str_get (id));
 			free (id);
 			}
 #endif
@@ -4127,8 +4125,10 @@ void MACH0_(mach_headerfields)(RBinFile *bf) {
 				pvaddr + 12, r_buf_read_le16_at (buf, addr + 14), r_buf_read8_at (buf, addr + 13),
 				r_buf_read8_at (buf, addr + 12));
 			cb_printf ("0x%08"PFMT64x"  id          %s\n",
-				pvaddr + str_off - 8, id? id: "");
-			free (id);
+				pvaddr + str_off - 8, r_str_get (id));
+			if (id) {
+				free (id);
+			}
 			break;
 		}
 		case LC_UUID:
@@ -4172,15 +4172,19 @@ void MACH0_(mach_headerfields)(RBinFile *bf) {
 				pvaddr + 12, r_buf_read_le16_at (buf, addr + 14), r_buf_read8_at (buf, addr + 13),
 				r_buf_read8_at (buf, addr + 12));
 			cb_printf ("0x%08"PFMT64x"  load_dylib  %s\n",
-				pvaddr + str_off - 8, load_dylib? load_dylib: "");
-			free (load_dylib);
+				pvaddr + str_off - 8, r_str_get (load_dylib));
+			if (load_dylib) {
+				free (load_dylib);
+			}
 			break;
 		}
 		case LC_RPATH: {
 			char *rpath = r_buf_get_string (buf, addr + 4);
 			cb_printf ("0x%08" PFMT64x "  rpath       %s\n",
-				pvaddr + 4, rpath ? rpath : "");
-			free (rpath);
+				pvaddr + 4, r_str_get (rpath));
+			if (rpath) {
+				free (rpath);
+			}
 			break;
 		}
 		case LC_ENCRYPTION_INFO:

@@ -1,3 +1,7 @@
+esil_plugins = [
+  'dummy'
+]
+
 anal_plugins = [
   '6502',
   '8051',
@@ -93,6 +97,7 @@ asm_plugins = [
   'nios2',
   'or1k',
   'pic',
+  'ppc_as',
   'ppc_cs',
   'ppc_gnu',
   'propeller',
@@ -108,6 +113,7 @@ asm_plugins = [
   'tricore',
   'v810',
   'v850',
+  'v850_gnu',
   'vax',
   'wasm',
   'ws',
@@ -383,6 +389,7 @@ include_files =[
   'include/r_types.h',
   'include/r_util.h',
   'include/r_vector.h',
+  'include/r_skyline.h',
 ]
 install_headers(include_files, install_dir: r2_incdir)
 

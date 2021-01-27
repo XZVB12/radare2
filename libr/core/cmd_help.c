@@ -76,6 +76,7 @@ static const char *help_msg_root[] = {
 	"*", "[?] off[=[0x]value]", "pointer read/write data/values (see ?v, wx, wv)",
 	"(macro arg0 arg1)",  "", "manage scripting macros",
 	".", "[?] [-|(m)|f|!sh|cmd]", "Define macro or load r2, cparse or rlang file",
+	",", "[?] [/jhr]", "create a dummy table import from file and query it to filter/sort",
 	"_", "[?]", "Print last output",
 	"=","[?] [cmd]", "send/listen for remote commands (rap://, raps://, udp://, http://, <fd>)",
 	"<","[...]", "push escaped string into the RCons.readChar buffer",
@@ -104,7 +105,8 @@ static const char *help_msg_root[] = {
 	"t","[?]", "types, noreturn, signatures, C parser and more",
 	"T","[?] [-] [num|msg]", "Text log utility (used to chat, sync, log, ...)",
 	"u","[?]", "uname/undo seek/write",
-	"v","", "visual mode (v! = panels, vv = fcnview, vV = fcngraph, vVV = callgraph)",
+	"v","", "panels mode",
+	"V", "", "visual mode (Vv = func/var anal, VV = graph mode, ...)",
 	"w","[?] [str]", "multiple write operations",
 	"x","[?] [len]", "alias for 'px' (print hexadecimal)",
 	"y","[?] [len] [[[@]addr", "Yank/paste bytes from/to memory",
@@ -133,23 +135,21 @@ static const char *help_msg_question_e[] = {
 
 static const char *help_msg_question[] = {
 	"Usage: ?[?[?]] expression", "", "",
-	"?", " eip-0x804800", "show all representation result for this math expr",
-	"?:", "", "list core cmd plugins",
-	"[cmd]?*", "", "recursive help for the given cmd",
 	"?!", " [cmd]", "run cmd if $? == 0",
+	"?", " eip-0x804800", "show all representation result for this math expr",
 	"?$", "", "show value all the variables ($)",
 	"?+", " [cmd]", "run cmd if $? > 0",
 	"?-", " [cmd]", "run cmd if $? < 0",
+	"?:", "", "list core cmd plugins",
 	"?=", " eip-0x804800", "hex and dec result for this math expr",
 	"?==", " x86 `e asm.arch`", "strcmp two strings",
 	"??", " [cmd]", "run cmd if $? != 0",
 	"??", "", "show value of operation",
-	"?_", " hudfile", "load hud menu with given file",
 	"?a", "", "show ascii table",
+	"?B", " [elem]", "show range boundaries like 'e?search.in",
 	"?b", " [num]", "show binary value of number",
 	"?b64[-]", " [str]", "encode/decode in base64",
 	"?btw", " num|expr num|expr num|expr", "returns boolean value of a <= b <= c",
-	"?B", " [elem]", "show range boundaries like 'e?search.in",
 	"?e", "[=bdgnpst] arg", "echo messages, bars, pie charts and more (see ?e? for details)",
 	"?f", " [num] [str]", "map each bit of the number as flag string index",
 	"?F", "", "flush cons output",
@@ -158,13 +158,13 @@ static const char *help_msg_question[] = {
 	"?ik", "", "press any key input dialog",
 	"?im", " message", "show message centered in screen",
 	"?in", " prompt", "noyes input prompt",
-	"?iy", " prompt", "yesno input prompt",
 	"?ip", " prompt", "path input prompt",
+	"?iy", " prompt", "yesno input prompt",
 	"?j", " arg", "same as '? num' but in JSON",
 	"?l", "[q] str", "returns the length of string ('q' for quiet, just set $?)",
 	"?o", " num", "get octal value",
-	"?p", " vaddr", "get physical address for given virtual address",
 	"?P", " paddr", "get virtual address for given physical one",
+	"?p", " vaddr", "get physical address for given virtual address",
 	"?q", " eip-0x804800", "compute expression like ? or ?v but in quiet mode",
 	"?r", " [from] [to]", "generate random number between from-to",
 	"?s", " from to step", "sequence of numbers from to by steps",
@@ -172,68 +172,72 @@ static const char *help_msg_question[] = {
 	"?T", "", "show loading times",
 	"?u", " num", "get value in human units (KB, MB, GB, TB)",
 	"?v", " eip-0x804800", "show hex value of math expr",
-	"?vi", " rsp-rbp", "show decimal value of math expr",
 	"?V", "", "show library version of r_core",
+	"?vi", " rsp-rbp", "show decimal value of math expr",
 	"?w", " addr", "show what's in this address (like pxr/pxq does)",
+	"?X", " num|expr", "returns the hexadecimal value numeric expr",
 	"?x", " str", "returns the hexpair of number or string",
 	"?x", "+num", "like ?v, but in hexpairs honoring cfg.bigendian",
 	"?x", "-hexst", "convert hexpair into raw string with newline",
-	"?X", " num|expr", "returns the hexadecimal value numeric expr",
+	"?_", " hudfile", "load hud menu with given file",
+	"[cmd]?*", "", "recursive help for the given cmd",
 	NULL
 };
 
 static const char *help_msg_question_v[] = {
 	"Usage: ?v [$.]","","",
 	"flag", "", "offset of flag",
+	"$", "{ev}", "get value of eval config variable",
 	"$$", "", "here (current virtual seek)",
 	"$$$", "", "current non-temporary virtual seek",
 	"$?", "", "last comparison value",
 	"$alias", "=value", "alias commands (simple macros)",
-	"$b", "", "block size",
 	"$B", "", "base address (aligned lowest map address)",
+	"$b", "", "block size",
+	"$c", "", "get terminal width in character columns",
+	"$Cn", "", "get nth call of function",
+	"$D", "", "current debug map base address ?v $D @ rsp",
+	"$DB", "", "same as dbg.baddr, progam base address",
+	"$DD", "", "current debug map size",
+	"$Dn", "", "get nth data reference in function",
+	"$e", "", "1 if end of block, else 0",
+	"$e", "{flag}", "end of flag (flag->offset + flag->size)",
 	"$f", "", "jump fail address (e.g. jz 0x10 => next instruction)",
-	"$fl", "", "flag length (size) at current address (fla; pD $l @ entry0)",
 	"$F", "", "Same as $FB",
 	"$Fb", "", "begin of basic block",
 	"$FB", "", "begin of function",
 	"$Fe", "", "end of basic block",
 	"$FE", "", "end of function",
 	"$Ff", "", "function false destination",
-	"$Fj", "", "function jump destination",
-	"$Fs", "", "size of the current basic block",
-	"$FS", "", "function size (linear length)",
-	"$FSS", "", "function size (sum bb sizes)",
 	"$Fi", "", "basic block instructions",
 	"$FI", "", "function instructions",
-	"$c,$r", "", "get width and height of terminal",
-	"$Cn", "", "get nth call of function",
-	"$Dn", "", "get nth data reference in function",
-	"$D", "", "current debug map base address ?v $D @ rsp",
-	"$DB", "", "same as dbg.baddr, progam base address",
-	"$DD", "", "current debug map size",
-	"$e", "", "1 if end of block, else 0",
+	"$Fj", "", "function jump destination",
+	"$fl", "", "flag length (size) at current address (fla; pD $l @ entry0)",
+	"$FS", "", "function size (linear length)",
+	"$Fs", "", "size of the current basic block",
+	"$FSS", "", "function size (sum bb sizes)",
+	"$i", "{n}", "address of nth instruction forward",
+	"$I", "{n}", "address of nth instruction backward (s $I1@$Fe) #last instr in bb",
 	"$j", "", "jump address (e.g. jmp 0x10, jz 0x10 => 0x10)",
 	"$Ja", "", "get nth jump of function",
-	"$Xn", "", "get nth xref of function",
+	"$k", "{kv}", "get value of an sdb query value",
 	"$l", "", "opcode length",
-	"$m", "", "opcode memory reference (e.g. mov eax,[0x10] => 0x10)",
 	"$M", "", "map address (lowest map address)",
+	"$m", "", "opcode memory reference (e.g. mov eax,[0x10] => 0x10)",
 	"$MM", "", "map size (lowest map address)",
-	"$o", "", "here (current disk io offset)",
 	"$O", "", "cursor here (current offset pointed by the cursor)",
+	"$o", "", "here (current disk io offset)",
 	"$p", "", "getpid()",
 	"$P", "", "pid of children (only in debug)",
+	"$r", "", "get console height (in rows, see $c for columns)",
+	"$r", "{reg}", "get value of named register",
 	"$s", "", "file size",
 	"$S", "", "section offset",
 	"$SS", "", "section size",
+	"$s", "{flag}", "get size of flag",
 	"$v", "", "opcode immediate value (e.g. lui a0,0x8010 => 0x8010)",
 	"$w", "", "get word size, 4 if asm.bits=32, 8 if 64, ...",
-	"${ev}", "", "get value of eval config variable",
-	"$r", "", "get console height",
-	"$r{reg}", "", "get value of named register",
-	"$k{kv}", "", "get value of an sdb query value",
-	"$s{flag}", "", "get size of flag",
-	"$e{flag}", "", "end of flag (flag->offset + flag->size)",
+	"$Xn", "", "get nth xref of function",
 	"RNum", "", "$variables usable in math expressions",
 	NULL
 };
@@ -454,7 +458,6 @@ R_API void r_core_clippy(RCore *core, const char *msg) {
 	free (s);
 }
 
-
 static int cmd_help(void *data, const char *input) {
 	RCore *core = (RCore *)data;
 	RIOMap *map;
@@ -534,7 +537,7 @@ static int cmd_help(void *data, const char *input) {
 			return false;
 		}
 		r_list_foreach (tmp, iter, map) {
-			r_cons_printf ("0x%"PFMT64x" 0x%"PFMT64x"\n", map->itv.addr, r_itv_end (map->itv));
+			r_cons_printf ("0x%"PFMT64x" 0x%"PFMT64x"\n", r_io_map_begin (map), r_io_map_end (map));
 		}
 		r_list_free (tmp);
 		break;
@@ -663,17 +666,15 @@ static int cmd_help(void *data, const char *input) {
 					pj_ks (pj, "float", sdb_fmt ("%ff", f));
 					pj_ks (pj, "double", sdb_fmt ("%lf", d));
 					pj_ks (pj, "binary", sdb_fmt ("0b%s", out));
-					r_num_to_trits (out, n);
-					pj_ks (pj, "trits", sdb_fmt ("0t%s", out));
+					r_num_to_ternary (out, n);
+					pj_ks (pj, "ternary", sdb_fmt ("0t%s", out));
 				} else {
 					r_cons_printf ("fvalue: %.1lf\n", core->num->fvalue);
 					r_cons_printf ("float:  %ff\n", f);
 					r_cons_printf ("double: %lf\n", d);
 					r_cons_printf ("binary  0b%s\n", out);
-
-					/* ternary */
-					r_num_to_trits (out, n);
-					r_cons_printf ("trits   0t%s\n", out);
+					r_num_to_ternary (out, n);
+					r_cons_printf ("ternary 0t%s\n", out);
 				}
 			}
 			if (*input ==  'j') {
@@ -841,9 +842,10 @@ static int cmd_help(void *data, const char *input) {
 		} else {
 			int i = 0;
 			const char *vars[] = {
-				"$$", "$$$", "$?", "$b", "$B", "$F", "$Fj", "$Ff", "$FB", "$Fb", "$Fs", "$FE", "$FS",
-				"$FI", "$c", "$r", "$D", "$DD", "$e", "$f", "$j", "$Ja", "$l", "$m", "$M", "$MM", "$o",
-				"$p", "$P", "$s", "$S", "$SS", "$v", "$w", NULL
+				"$$", "$$$", "$?", "$B", "$b", "$c", "$Cn", "$D", "$DB", "$DD", "$Dn",
+				"$e", "$f", "$F", "$Fb", "$FB", "$Fe", "$FE", "$Ff", "$Fi", "$FI", "$Fj",
+				"$fl", "$FS", "$Fs", "$FSS", "$i", "$j", "$Ja", "$l", "$M", "$m", "$MM", "$O",
+				"$o", "$p", "$P", "$r", "$s", "$S", "$SS", "$v", "$w", "$Xn", NULL
 			};
 			const bool wideOffsets = r_config_get_i (core->config, "scr.wideoff");
 			while (vars[i]) {
@@ -915,7 +917,7 @@ static int cmd_help(void *data, const char *input) {
 		break;
 	case 'l': // "?l"
 		if (input[1] == 'q') {
-			for (input+=2; input[0] == ' '; input++);
+			for (input += 2; input[0] == ' '; input++);
 			core->num->value = strlen (input);
 		} else {
 			for (input++; input[0] == ' '; input++);
@@ -1107,7 +1109,7 @@ static int cmd_help(void *data, const char *input) {
 				r_num_math (core->num, input+2): core->offset;
 			RIOMap *map = r_io_map_get_paddr (core->io, n);
 			if (map) {
-				o = n + map->itv.addr - map->delta;
+				o = n + r_io_map_begin (map) - map->delta;
 				r_cons_printf ("0x%08"PFMT64x"\n", o);
 			} else {
 				r_cons_printf ("no map at 0x%08"PFMT64x"\n", n);
@@ -1123,7 +1125,7 @@ static int cmd_help(void *data, const char *input) {
 				r_num_math (core->num, input + 2): core->offset;
 			RIOMap *map = r_io_map_get (core->io, n);
 			if (map) {
-				o = n - map->itv.addr + map->delta;
+				o = n - r_io_map_begin (map) + map->delta;
 				r_cons_printf ("0x%08"PFMT64x"\n", o);
 			} else {
 				r_cons_printf ("no map at 0x%08"PFMT64x"\n", n);

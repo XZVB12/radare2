@@ -109,17 +109,22 @@ FILE=bins/elf/libverifyPass.so
 CMDS=<<EOF
 e anal.vars.stackname=true
 e asm.lines.bb = false
+e io.cache=false
+e io.cache.read=false
+wc-*
 aa
 s sym.Java_com_app_ndh_NDHActivity_print
 to bins/headers/jni.h
+td struct NULL { }
 tl JNINativeInterface = 0x464c457f
+tl NULL = 0
 pdf~JNINativeInterface
 pdr~JNI?
 EOF
 EXPECT=<<EOF
 | ; var struct JNINativeInterface @ sp+0x12c
 | 0x00000f74      4b93           str r3, [JNINativeInterface]
-| 0x00000f76      039b           ldr r3, [var_134h]                    ; JNINativeInterface.reserved0
+| 0x00000f76      039b           ldr r3, [NULL]                        ; JNINativeInterface.reserved0
 | 0x00000f7e      d358           ldr r3, [r2, r3]                      ; JNINativeInterface.GetStringUTFChars
 | 0x00000f82      019a           ldr r2, [var_13ch]                    ; JNINativeInterface.reserved0
 | 0x0000100e      d358           ldr r3, [r2, r3]                      ; JNINativeInterface.GetStringLength
@@ -805,6 +810,7 @@ RUN
 NAME=ts function pointer test
 FILE=-
 CMDS=<<EOF
+e asm.bits=64
 ws hello @ 0xc
 "td struct foo {int x; int (*fp)(int a , int b ); char *b;};"
 ts foo
@@ -1627,5 +1633,44 @@ fcn.0000c0f0
 =
 fcn.00011b90
 fcn.00014d50
+EOF
+RUN
+
+NAME=aht aligned
+FILE=-
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=64
+"td struct foo {char gap;int bar __attribute__((__aligned__(4)));};"
+"td struct foo2 {char gap[1];int bar __attribute__((__aligned__(4)));};"
+"td struct foo3 {char gap[3];int bar __attribute__((__aligned__(4)));};"
+"td struct foo4 {char gap[4];int bar;};"
+"td struct foo5 {int gap;int bar;};"
+ahts 4 ~foo
+?e =
+wx c7400400000000
+aht foo.bar
+pd 1
+EOF
+EXPECT=<<EOF
+foo.bar
+foo2.bar
+foo3.bar
+foo4.bar
+foo5.bar
+=
+            0x00000000      c74004000000.  mov dword [rax + foo.bar], 0
+EOF
+RUN
+
+NAME=ahts nested
+FILE=-
+CMDS=<<EOF
+"td struct foo {int bar;int cow;};"
+"td struct spam {int ham;struct foo _foo;int eggs;};"
+ahts 8 ~spam
+EOF
+EXPECT=<<EOF
+spam._foo.cow
 EOF
 RUN

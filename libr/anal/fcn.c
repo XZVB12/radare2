@@ -122,6 +122,7 @@ R_API int r_anal_function_resize(RAnalFunction *fcn, int newsize) {
 		}
 		if (bb->addr + bb->size >= eof) {
 			r_anal_block_set_size (bb, eof - bb->addr);
+			r_anal_block_update_hash (bb);
 		}
 		if (bb->jump != UT64_MAX && bb->jump >= eof) {
 			bb->jump = UT64_MAX;
@@ -416,7 +417,7 @@ static bool fcn_takeover_block_recursive_followthrough_cb(RAnalBlock *block, voi
 		}
 		// Steal vars from this block
 		size_t i;
-		for (i = 0; i + 1 < block->ninstr; i++) {
+		for (i = 0; i < block->ninstr; i++) {
 			const ut64 addr = r_anal_bb_opaddr_i (block, i);
 			RPVector *vars_used = r_anal_function_get_vars_used_at (other_fcn, addr);
 			if (!vars_used) {
@@ -453,7 +454,6 @@ static bool fcn_takeover_block_recursive_followthrough_cb(RAnalBlock *block, voi
 	block->parent_stackptr -= ctx->stack_diff;
 	r_anal_function_add_block (our_fcn, block);
 	// TODO: add block->ninstr from our_fcn considering delay slots
-	our_fcn += block->ninstr;
 	r_anal_block_unref (block);
 	return true;
 }
@@ -997,7 +997,7 @@ repeat:
 				bool must_eob = true;
 				RIOMap *map = anal->iob.map_get (anal->iob.io, addr);
 				if (map) {
-					must_eob = (op.jump < map->itv.addr || op.jump >= map->itv.addr + map->itv.size);
+					must_eob = ( ! r_io_map_contain (map, op.jump) );
 				}
 				if (must_eob) {
 					op.jump = UT64_MAX;
@@ -1046,6 +1046,7 @@ repeat:
 				cmpval = val;
 				bb->cmpval = cmpval;
 				bb->cmpreg = op.reg;
+				r_anal_cond_free (bb->cond);
 				bb->cond = r_anal_cond_new_from_op (&op);
 			}
 		}
@@ -1722,7 +1723,7 @@ R_API char *r_anal_function_get_json(RAnalFunction *function) {
 	pj_ks (pj, "name", function->name);
 	const bool no_return = r_anal_noreturn_at_addr (a, function->addr);
 	pj_kb (pj, "noreturn", no_return);
-	pj_ks (pj, "ret", ret_type?ret_type: "void");
+	pj_ks (pj, "ret", r_str_get_fail (ret_type, "void"));
 	if (function->cc) {
 		pj_ks (pj, "cc", function->cc);
 	}
@@ -1804,7 +1805,7 @@ R_API char *r_anal_function_get_signature(RAnalFunction *function) {
 		free (arg_i);
 		free (sdb_arg_i);
 	}
-	ret = r_str_newf ("%s %s (%s);", ret_type? ret_type: "void", realname, args);
+	ret = r_str_newf ("%s %s (%s);", r_str_get_fail (ret_type, "void"), realname, args);
 
 	free (sdb_args);
 	free (sdb_ret);
@@ -1977,9 +1978,10 @@ static bool can_affect_bp(RAnal *anal, RAnalOp* op) {
 static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 	RListIter *iter;
 	RAnalBlock *bb;
-	char str_to_find[40] = "\"type\":\"reg\",\"value\":\"";
 	char *pos;
-	strncat (str_to_find, anal->reg->name[R_REG_NAME_BP], 39);
+	char str_to_find[40];
+	snprintf (str_to_find, sizeof (str_to_find),
+		"\"type\":\"reg\",\"value\":\"%s", anal->reg->name[R_REG_NAME_BP]);
 	if (!fcn) {
 		return;
 	}

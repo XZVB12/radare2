@@ -184,12 +184,6 @@ enum {
 	R_ANAL_FQUALIFIER_VIRTUAL = 5,
 };
 
-/*--------------------Function Conventions-----------*/
-//XXX don't use them in the future
-#define R_ANAL_CC_TYPE_STDCALL 0
-#define R_ANAL_CC_TYPE_PASCAL 1
-#define R_ANAL_CC_TYPE_FASTCALL 'A' // syscall
-#define R_ANAL_CC_TYPE_SYSV 8
 #define R_ANAL_CC_MAXARG 16
 
 enum {
@@ -647,8 +641,10 @@ typedef struct r_anal_t {
 	int pcalign; // asm.pcalign
 	struct r_anal_esil_t *esil;
 	struct r_anal_plugin_t *cur;
+	struct r_anal_esil_plugin_t *esil_cur; // ???
 	RAnalRange *limit; // anal.from, anal.to
-	RList *plugins;
+	RList *plugins; // anal plugins
+	RList *esil_plugins;
 	Sdb *sdb_types;
 	Sdb *sdb_fmts;
 	Sdb *sdb_zigns;
@@ -771,6 +767,7 @@ typedef enum {
 #define ARGPREFIX "arg"
 
 typedef enum {
+	R_ANAL_VAR_ACCESS_TYPE_PTR = 0,
 	R_ANAL_VAR_ACCESS_TYPE_READ = (1 << 0),
 	R_ANAL_VAR_ACCESS_TYPE_WRITE = (1 << 1)
 } RAnalVarAccessType;
@@ -1259,13 +1256,13 @@ typedef struct r_anal_esil_cfg_t {
 	RGraph *g;
 } RAnalEsilCFG;
 
-typedef enum {
+enum {
 	R_ANAL_ESIL_DFG_BLOCK_CONST = 1,
 	R_ANAL_ESIL_DFG_BLOCK_VAR = 2,
 	R_ANAL_ESIL_DFG_BLOCK_PTR = 4,
 	R_ANAL_ESIL_DFG_BLOCK_RESULT = 8,
 	R_ANAL_ESIL_DFG_BLOCK_GENERATIVE = 16,
-} RAnalEsilDFGBlockType;
+};	//RAnalEsilDFGBlockType
 
 typedef struct r_anal_esil_dfg_t {
 	ut32 idx;
@@ -1283,7 +1280,7 @@ typedef struct r_anal_esil_dfg_node_t {
 	// add more info here
 	ut32 idx;
 	RStrBuf *content;
-	RAnalEsilDFGBlockType type;
+	ut32 /*RAnalEsilDFGBlockType*/ type;
 } RAnalEsilDFGNode;
 
 typedef int (*RAnalCmdExt)(/* Rcore */RAnal *anal, const char* input);
@@ -1339,6 +1336,18 @@ typedef struct r_anal_plugin_t {
 	RAnalEsilTrapCB esil_trap; // traps / exceptions
 	RAnalEsilCB esil_fini; // deinitialize
 } RAnalPlugin;
+
+typedef struct r_anal_esil_plugin_t {
+	char *name;
+	char *desc;
+	char *license;
+	char *arch;
+	char *author;
+	char *version;
+
+	bool (*init)(void *user);
+	bool (*fini)(void *user);
+} RAnalEsilPlugin;
 
 /*----------------------------------------------------------------------------------------------*/
 int * (r_anal_compare) (RAnalFunction , RAnalFunction );
@@ -1531,8 +1540,10 @@ R_API RAnal *r_anal_free(RAnal *r);
 R_API void r_anal_set_user_ptr(RAnal *anal, void *user);
 R_API void r_anal_plugin_free (RAnalPlugin *p);
 R_API int r_anal_add(RAnal *anal, RAnalPlugin *foo);
+R_API int r_anal_esil_add(RAnal *anal, RAnalEsilPlugin *foo);
 R_API int r_anal_archinfo(RAnal *anal, int query);
 R_API bool r_anal_use(RAnal *anal, const char *name);
+R_API bool r_anal_esil_use(RAnal *anal, const char *name);
 R_API bool r_anal_set_reg_profile(RAnal *anal);
 R_API char *r_anal_get_reg_profile(RAnal *anal);
 R_API ut64 r_anal_get_bbaddr(RAnal *anal, ut64 addr);
@@ -1553,7 +1564,7 @@ R_API void r_anal_purge_imports(RAnal *anal);
 /* bb.c */
 R_API RAnalBlock *r_anal_bb_from_offset(RAnal *anal, ut64 off);
 R_API bool r_anal_bb_set_offset(RAnalBlock *bb, int i, ut16 v);
-R_API ut16 r_anal_bb_offset_inst(RAnalBlock *bb, int i);
+R_API ut16 r_anal_bb_offset_inst(const RAnalBlock *bb, int i);
 R_API ut64 r_anal_bb_opaddr_i(RAnalBlock *bb, int i);
 R_API ut64 r_anal_bb_opaddr_at(RAnalBlock *bb, ut64 addr);
 R_API ut64 r_anal_bb_size_i(RAnalBlock *bb, int i);
@@ -1805,6 +1816,8 @@ R_API bool r_anal_cc_exist(RAnal *anal, const char *convention);
 R_API void r_anal_cc_del(RAnal *anal, const char *name);
 R_API bool r_anal_cc_set(RAnal *anal, const char *expr);
 R_API char *r_anal_cc_get(RAnal *anal, const char *name);
+R_API bool r_anal_cc_once(RAnal *anal);
+R_API void r_anal_cc_get_json(RAnal *anal, PJ *pj, const char *name);
 R_API const char *r_anal_cc_arg(RAnal *anal, const char *convention, int n);
 R_API const char *r_anal_cc_self(RAnal *anal, const char *convention);
 R_API void r_anal_cc_set_self(RAnal *anal, const char *convention, const char *self);
@@ -1813,6 +1826,9 @@ R_API void r_anal_cc_set_error(RAnal *anal, const char *convention, const char *
 R_API int r_anal_cc_max_arg(RAnal *anal, const char *cc);
 R_API const char *r_anal_cc_ret(RAnal *anal, const char *convention);
 R_API const char *r_anal_cc_default(RAnal *anal);
+R_API void r_anal_set_cc_default(RAnal *anal, const char *convention);
+R_API const char *r_anal_syscc_default(RAnal *anal);
+R_API void r_anal_set_syscc_default(RAnal *anal, const char *convention);
 R_API const char *r_anal_cc_func(RAnal *anal, const char *func_name);
 R_API bool r_anal_noreturn_at(RAnal *anal, ut64 addr);
 
@@ -1902,9 +1918,9 @@ R_API ut64 r_meta_get_size(RAnal *a, RAnalMetaType type);
 
 R_API const char *r_meta_type_to_string(int type);
 R_API void r_meta_print(RAnal *a, RAnalMetaItem *d, ut64 start, ut64 size, int rad, PJ *pj, bool show_full);
-R_API void r_meta_print_list_all(RAnal *a, int type, int rad);
-R_API void r_meta_print_list_at(RAnal *a, ut64 addr, int rad);
-R_API void r_meta_print_list_in_function(RAnal *a, int type, int rad, ut64 addr);
+R_API void r_meta_print_list_all(RAnal *a, int type, int rad, const char *tq);
+R_API void r_meta_print_list_at(RAnal *a, ut64 addr, int rad, const char *tq);
+R_API void r_meta_print_list_in_function(RAnal *a, int type, int rad, ut64 addr, const char *tq);
 
 /* hints */
 
@@ -2119,10 +2135,11 @@ R_API RAnalEsilCFG *r_anal_esil_cfg_op(RAnalEsilCFG *cfg, RAnal *anal, RAnalOp *
 R_API void r_anal_esil_cfg_merge_blocks(RAnalEsilCFG *cfg);
 R_API void r_anal_esil_cfg_free(RAnalEsilCFG *cfg);
 
-R_API RAnalEsilDFGNode *r_anal_esil_dfg_node_new (RAnalEsilDFG *edf, const char *c);
+R_API RAnalEsilDFGNode *r_anal_esil_dfg_node_new(RAnalEsilDFG *edf, const char *c);
 R_API RAnalEsilDFG *r_anal_esil_dfg_new(RReg *regs);
 R_API void r_anal_esil_dfg_free(RAnalEsilDFG *dfg);
 R_API RAnalEsilDFG *r_anal_esil_dfg_expr(RAnal *anal, RAnalEsilDFG *dfg, const char *expr);
+R_API void r_anal_esil_dfg_fold_const(RAnal *anal, RAnalEsilDFG *dfg);
 R_API RStrBuf *r_anal_esil_dfg_filter(RAnalEsilDFG *dfg, const char *reg);
 R_API RStrBuf *r_anal_esil_dfg_filter_expr(RAnal *anal, const char *expr, const char *reg);
 R_API RList *r_anal_types_from_fcn(RAnal *anal, RAnalFunction *fcn);
@@ -2195,6 +2212,8 @@ extern RAnalPlugin r_anal_plugin_xcore_cs;
 extern RAnalPlugin r_anal_plugin_xtensa;
 extern RAnalPlugin r_anal_plugin_z80;
 extern RAnalPlugin r_anal_plugin_pyc;
+extern RAnalEsilPlugin r_esil_plugin_dummy;
+
 #ifdef __cplusplus
 }
 #endif

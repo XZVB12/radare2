@@ -41,13 +41,13 @@ CS_TAR=
 CS_URL_BASE=github.com/aquynh/capstone
 CS_URL=$(GIT_PREFIX)$(CS_URL_BASE).git
 CS_ARCHIVE=https://$(CS_URL_BASE)/archive
-CS_UPD=20190515
+CS_UPD=20201203
 # NOTE: when you update CS_TIP or CS_BRA, also update them in shlr/meson.build
 ifeq ($(CS_NEXT),1)
-CS_TIP=d956ceddabcbe544ee8f074ba75c86c6381b34e6
+CS_TIP=3f46b83045049901585688f6a53501e5e032449e
 CS_BRA=next
 else
-CS_TIP=2edae851d9fee511a57d4da32d5acecedd95d7ed
+CS_TIP=aa74f5d1ba5348c0441fbff0c0c151d95d2fa459
 CS_BRA=v4
 endif
 ifeq ($(CS_COMMIT_ARCHIVE),1)
@@ -118,9 +118,17 @@ ifneq ($(CC),cccl)
 PIC=-fPIC
 endif
 
-sdbs:
+SDB_HOST=sdb/sdb$(BUILD_EXT_EXE)
+SDB_LIBA=sdb/src/libsdb.a
+
+$(SDB_HOST):
 	$(MAKE) sdb-host HOST_CC=$(HOST_CC) CC=$(HOST_CC)
+
+$(SDB_LIBA):
 	$(MAKE) sdb-target
+
+sdbs: $(SDB_HOST)
+	$(MAKE) $(SDB_LIBA)
 
 sdb-host:
 	@echo
@@ -132,6 +140,7 @@ sdb-host:
 	$(MAKE) -C sdb/src "CC=${HOST_CC}" LDFLAGS='${HOST_LDFLAGS}' CPPFLAGS='' CFLAGS='${HOST_CFLAGS} ${PIC}' bin
 	cp -f sdb/src/sdb${BUILD_EXT_EXE} sdb/src/.sdb${BUILD_EXT_EXE}
 	cp -f sdb/src/sdb${BUILD_EXT_EXE} sdb/sdb$(BUILD_EXT_EXE)
+	rm -f $(SDB_LIBA)
 	-file sdb/sdb$(BUILD_EXT_EXE)
 
 sdb-target:
@@ -366,6 +375,7 @@ spp-sync sync-spp:
 spp: spp-sync
 	CFLAGS="-DUSE_R2=1 -I../../libr/include -DHAVE_FORK=${HAVE_FORK} -fPIC" $(MAKE) -C spp r2lib
 
+SHLRS+=tcc/libr_tcc.a
 SHLRS+=ar/libr_ar.a
 SHLRS+=bochs/lib/libbochs.a
 SHLRS+=capstone/libcapstone.a

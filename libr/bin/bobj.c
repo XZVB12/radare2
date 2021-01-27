@@ -116,8 +116,6 @@ static RList *classes_from_symbols(RBinFile *bf) {
 				if (!mn) {
 					mn = strstr (dn, cn);
 					if (mn && mn[strlen (cn)] == '.') {
-						mn += strlen (cn) + 1;
-						// eprintf ("METHOD %s  %s\n", sym->classname, mn);
 						r_list_append (c->methods, sym);
 					}
 				}
@@ -423,7 +421,7 @@ R_API int r_bin_object_set_items(RBinFile *bf, RBinObject *o) {
 	if (p->mem)  {
 		o->mem = p->mem (bf);
 	}
-	if (bin->filter_rules & (R_BIN_REQ_INFO | R_BIN_REQ_SYMBOLS | R_BIN_REQ_IMPORTS)) {
+	if (o->info && bin->filter_rules & (R_BIN_REQ_INFO | R_BIN_REQ_SYMBOLS | R_BIN_REQ_IMPORTS)) {
 		o->lang = isSwift? R_BIN_NM_SWIFT: r_bin_load_languages (bf);
 	}
 	return true;
