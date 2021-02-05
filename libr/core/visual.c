@@ -105,7 +105,7 @@ R_API void r_core_visual_toggle_decompiler_disasm(RCore *core, bool for_graph, b
 		return;
 	}
 	hold = r_config_hold_new (core->config);
-	r_config_hold_s (hold, "asm.hint.pos", "asm.cmt.col", "asm.offset", "asm.lines",
+	r_config_hold (hold, "asm.hint.pos", "asm.cmt.col", "asm.offset", "asm.lines",
 	"asm.indent", "asm.bytes", "asm.comments", "asm.dwarf", "asm.usercomments", "asm.instr", NULL);
 	if (for_graph) {
 		r_config_set (core->config, "asm.hint.pos", "-2");
@@ -4128,8 +4128,8 @@ static void visual_refresh(RCore *core) {
 				break;
 			}
 			snprintf (debugstr, sizeof (debugstr),
-					"?0;%s %d @ %"PFMT64d";cl;"
-					"?1;%s %d @ %"PFMT64d";",
+					"?t0;%s %d @ %"PFMT64d";cl;"
+					"?t1;%s %d @ %"PFMT64d";",
 					pxw, size, splitPtr,
 					pxw, size, core->offset);
 			core->print->screen_bounds = 1LL;
@@ -4313,7 +4313,7 @@ dodo:
 
 			if (cmdvhex && *cmdvhex) {
 				snprintf (debugstr, sizeof (debugstr),
-					"?0;f tmp;ssr %s;%s;?1;%s;?1;"
+					"?t0;f tmp;ssr %s;%s;?1;%s;?1;"
 					"ss tmp;f-tmp;pd $r", reg, cmdvhex,
 					ref? "drr": "dr=");
 				debugstr[sizeof (debugstr) - 1] = 0;
@@ -4323,8 +4323,8 @@ dodo:
 				const int absdelta = R_ABS (delta);
 				snprintf (debugstr, sizeof (debugstr),
 					"diq;?0;f tmp;ssr %s;%s %d@$$%c%d;"
-					"?1;%s;"
-					"?1;ss tmp;f-tmp;afal;pd $r",
+					"?t1;%s;"
+					"?t1;ss tmp;f-tmp;afal;pd $r",
 					reg, pxa? "pxa": pxw, size, sign, absdelta,
 					ref? "drr": "dr=");
 			}

@@ -1867,14 +1867,14 @@ static bool cb_iopcache(void *user, void *data) {
 	RConfigNode *node = (RConfigNode *) data;
 	if ((bool)node->i_value) {
 		if (core) {
-			r_config_set_i (core->config, "io.pcache.read", true);
-			r_config_set_i (core->config, "io.pcache.write", true);
+			r_config_set_b (core->config, "io.pcache.read", true);
+			r_config_set_b (core->config, "io.pcache.write", true);
 		}
 	} else {
 		if (core && core->io) {
 			r_io_desc_cache_fini_all (core->io);
-			r_config_set_i (core->config, "io.pcache.read", false);
-			r_config_set_i (core->config, "io.pcache.write", false);
+			r_config_set_b (core->config, "io.pcache.read", false);
+			r_config_set_b (core->config, "io.pcache.write", false);
 		}
 	}
 	return true;
@@ -1892,7 +1892,7 @@ static bool cb_iopcacheread(void *user, void *data) {
 			core->io->p_cache &= 2;
 			if (!(core->io->p_cache & 2)) {
 				r_io_desc_cache_fini_all (core->io);
-				r_config_set_i (core->config, "io.pcache", false);
+				r_config_set_b (core->config, "io.pcache", false);
 			}
 		}
 	}
@@ -1911,7 +1911,7 @@ static bool cb_iopcachewrite(void *user, void *data) {
 			core->io->p_cache &= 1;
 			if (!(core->io->p_cache & 1)) {
 				r_io_desc_cache_fini_all (core->io);
-				r_config_set_i (core->config, "io.pcache", false);
+				r_config_set_b (core->config, "io.pcache", false);
 			}
 		}
 	}
@@ -3854,6 +3854,7 @@ R_API int r_core_config_init(RCore *core) {
 
 	/* search */
 	SETCB ("search.contiguous", "true", &cb_contiguous, "Accept contiguous/adjacent search hits");
+	SETBPREF ("search.verbose", "true", "Make the output of search commands verbose");
 	SETICB ("search.align", 0, &cb_searchalign, "Only catch aligned search hits");
 	SETI ("search.chunk", 0, "Chunk size for /+ (default size is asm.bits/8");
 	SETI ("search.esilcombo", 8, "Stop search after N consecutive hits");

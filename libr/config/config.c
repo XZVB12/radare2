@@ -323,25 +323,33 @@ R_API bool r_config_toggle(RConfig *cfg, const char *name) {
 		eprintf ("(error: '%s' config key is read only)\n", name);
 		return false;
 	}
-	(void)r_config_set_i (cfg, name, !node->i_value);
+	(void)r_config_set_b (cfg, name, !node->i_value);
 	return true;
 }
 
+R_API bool r_config_get_b(RConfig *cfg, const char *name) {
+	return r_config_get_i (cfg, name) != 0;
+}
+
 R_API ut64 r_config_get_i(RConfig *cfg, const char *name) {
+	r_return_val_if_fail (cfg, 0ULL);
 	RConfigNode *node = r_config_node_get (cfg, name);
 	if (node) {
 		if (node->getter) {
 			node->getter (cfg->user, node);
 		}
-		if (node->i_value || !strcmp (node->value, "false")) {
+		if (node->i_value) {
 			return node->i_value;
+		}
+		if (!strcmp (node->value, "false")) {
+			return 0;
 		}
 		if (!strcmp (node->value, "true")) {
 			return 1;
 		}
 		return (ut64) r_num_math (cfg->num, node->value);
 	}
-	return (ut64) 0LL;
+	return 0ULL;
 }
 
 R_API const char* r_config_node_type(RConfigNode *node) {
@@ -514,6 +522,14 @@ R_API void r_config_node_value_format_i(char *buf, size_t buf_size, const ut64 i
 	} else {
 		snprintf (buf, buf_size, "0x%08" PFMT64x "", i);
 	}
+}
+
+R_API RConfigNode* r_config_set_b(RConfig *cfg, const char *name, bool b) {
+	RConfigNode *node = r_config_node_get (cfg, name);
+	if (node && r_config_node_is_bool (node)) {
+		return r_config_set_i (cfg, name, b? 1: 0);
+	}
+	return NULL;
 }
 
 R_API RConfigNode* r_config_set_i(RConfig *cfg, const char *name, const ut64 i) {

@@ -366,7 +366,7 @@ static const char *get_utf8_char(const char line, RDisasmState *ds) {
 	case '>': return ds->core->cons->vline[ARROW_RIGHT];
 	case ':': return ds->core->cons->vline[LINE_UP];
 	case '|': return ds->core->cons->vline[LINE_VERT];
-	case '=': return ds->core->cons->vline[LINE_HORIZ];
+	case '=':
 	case '-': return ds->core->cons->vline[LINE_HORIZ];
 	case ',': return ds->core->cons->vline[CORNER_TL];
 	case '.': return ds->core->cons->vline[CORNER_TR];
@@ -766,7 +766,7 @@ static RDisasmState * ds_init(RCore *core) {
 	ds->nb = 0;
 	ds->flagspace_ports = r_flag_space_get (core->flags, "ports");
 	ds->lbytes = r_config_get_i (core->config, "asm.lbytes");
-	ds->show_comment_right_default = r_config_get_i (core->config, "asm.cmt.right");
+	ds->show_comment_right_default = r_config_get_b (core->config, "asm.cmt.right");
 	ds->show_comment_right = ds->show_comment_right_default;
 	ds->show_flag_in_bytes = r_config_get_i (core->config, "asm.flags.inbytes");
 	ds->show_marks = r_config_get_i (core->config, "asm.marks");
@@ -2389,7 +2389,6 @@ static void ds_update_ref_lines(RDisasmState *ds) {
 		free (ds->prev_line_col);
 		ds->refline = strdup ("");
 		ds->refline2 = strdup ("");
-		ds->prev_line_col = strdup ("");
 		ds->line = NULL;
 		ds->line_col = NULL;
 		ds->prev_line_col = NULL;
@@ -3031,8 +3030,18 @@ static bool ds_print_meta_infos(RDisasmState *ds, ut8* buf, int len, int idx, in
 			if (!ds_print_data_type (ds, buf + idx, ds->hint? ds->hint->immbase: 0, size)) {
 				if (size > delta) {
 					r_cons_printf ("hex size=%d delta=%d\n", size , delta);
-					r_print_hexdump (core->print, ds->at,
-						buf + idx, size - delta, 16, 1, 1);
+					int remaining = size - delta;
+					remaining = R_MAX (remaining, 0);
+					if (remaining > (len - delta)) {
+						ut8 *b = calloc (1, size - delta);
+						memcpy (b, buf, len);
+						r_print_hexdump (core->print, ds->at,
+								b + idx, remaining, 16, 1, 1);
+						free (b);
+					} else {
+						r_print_hexdump (core->print, ds->at,
+							buf + idx, remaining, 16, 1, 1);
+					}
 				} else {
 					r_cons_printf ("hex size=%d hexlen=%d delta=%d",
 						size, hexlen, delta);
@@ -4626,7 +4635,7 @@ static void ds_print_esil_anal(RDisasmState *ds) {
 		r_anal_esil_parse (esil, esilstr);
 	}
 	r_anal_esil_stack_free (esil);
-	r_config_hold_i (hc, "io.cache", NULL);
+	r_config_hold (hc, "io.cache", NULL);
 	r_config_set (core->config, "io.cache", "true");
 	if (!ds->show_comments) {
 		goto beach;
@@ -5762,7 +5771,6 @@ toro:
 				core->parser->flagspace = ofs;
 				free (ds->opstr);
 				ds->opstr = asm_str;
-				core->parser->flagspace = ofs; // ???
 			} else {
 				ds->opstr = strdup (r_asm_op_get_asm (&ds->asmop));
 			}
@@ -6208,6 +6216,7 @@ R_API int r_core_print_disasm_all(RCore *core, ut64 addr, int l, int len, int mo
 	if (mode == 'j') {
 		pj = r_core_pj_new (core);
 		if (!pj) {
+			ds_free (ds);
 			return 0;
 		}
 		pj_a (pj);
@@ -6345,7 +6354,7 @@ R_API int r_core_disasm_pdi_with_buf(RCore *core, ut64 address, ut8 *buf, ut32 n
 	int midflags = r_config_get_i (core->config, "asm.flags.middle");
 	int midbb = r_config_get_i (core->config, "asm.bb.middle");
 	bool asmmarks = r_config_get_i (core->config, "asm.marks");
-	r_config_set_i (core->config, "asm.marks", false);
+	r_config_set_b (core->config, "asm.marks", false);
 	i = 0;
 	j = 0;
 	RAnalMetaItem *meta = NULL;
@@ -6409,13 +6418,7 @@ toro:
 				}
 				continue;
 			case R_META_TYPE_STRING:
-				//r_cons_printf (".string: %s\n", meta->str);
-				i += meta_size;
-				continue;
 			case R_META_TYPE_FORMAT:
-				//r_cons_printf (".format : %s\n", meta->str);
-				i += meta_size;
-				continue;
 			case R_META_TYPE_MAGIC:
 				//r_cons_printf (".magic : %s\n", meta->str);
 				i += meta_size;
@@ -6550,7 +6553,7 @@ toro:
 		i = 0;
 		goto toro;
 	}
-	r_config_set_i (core->config, "asm.marks", asmmarks);
+	r_config_set_b (core->config, "asm.marks", asmmarks);
 	r_cons_break_pop ();
 	r_core_seek (core, old_offset, true);
 	return err;
@@ -6621,9 +6624,9 @@ R_API int r_core_disasm_pde(RCore *core, int nb_opcodes, int mode) {
 	}
 	r_reg_arena_push (reg);
 	RConfigHold *chold = r_config_hold_new (core->config);
-	r_config_hold_i (chold, "io.cache", "asm.lines", NULL);
-	r_config_set_i (core->config, "io.cache", true);
-	r_config_set_i (core->config, "asm.lines", false);
+	r_config_hold (chold, "io.cache", "asm.lines", NULL);
+	r_config_set_b (core->config, "io.cache", true);
+	r_config_set_b (core->config, "asm.lines", false);
 	const char *strip = r_config_get (core->config, "asm.strip");
 	const int max_op_size = r_anal_archinfo (core->anal, R_ANAL_ARCHINFO_MAX_OP_SIZE);
 	int min_op_size = r_anal_archinfo (core->anal, R_ANAL_ARCHINFO_MIN_OP_SIZE);

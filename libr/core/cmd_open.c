@@ -1106,7 +1106,7 @@ R_API void r_core_file_reopen_remote_debug(RCore *core, char *uri, ut64 addr) {
 	ut64 old_base = core->bin->cur->o->baddr_shift;
 	int bits = core->rasm->bits;
 	r_config_set_i (core->config, "asm.bits", bits);
-	r_config_set_i (core->config, "cfg.debug", true);
+	r_config_set_b (core->config, "cfg.debug", true);
 	// Set referer as the original uri so we could return to it with `oo`
 	desc->referer = desc->uri;
 	desc->uri = strdup (uri);
@@ -1177,7 +1177,7 @@ R_API void r_core_file_reopen_debug(RCore *core, const char *args) {
 	desc->uri = newfile;
 	desc->referer = NULL;
 	r_config_set_i (core->config, "asm.bits", bits);
-	r_config_set_i (core->config, "cfg.debug", true);
+	r_config_set_b (core->config, "cfg.debug", true);
 	r_core_file_reopen (core, newfile, 0, 2);
 	if (r_config_get_i (core->config, "dbg.rebase")) {
 		__rebase_everything (core, old_sections, old_base);
@@ -1926,6 +1926,8 @@ static int cmd_open(void *data, const char *input) {
 			if ((fdx == -1) || (fd == -1) || (fdx == fd)) {
 				free (inp);
 				break;
+			} else {
+				free (inp);
 			}
 			r_io_desc_exchange (core->io, fd, fdx);
 			r_core_block_read (core);

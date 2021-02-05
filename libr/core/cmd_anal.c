@@ -175,9 +175,6 @@ static const char *help_msg_ae[] = {
 	"aek", " [query]", "perform sdb query on ESIL.info",
 	"aek-", "", "resets the ESIL.info sdb instance",
 	"aeL", "", "list ESIL plugins",
-	"aeli", "", "list loaded ESIL interrupts",
-	"aeli", " [file]", "load ESIL interrupts from shared object",
-	"aelir", " [interrupt number]", "remove ESIL interrupt and free it if needed",
 	"aep", "[?] [addr]", "manage esil pin hooks",
 	"aepc", " [addr]", "change esil PC to this address",
 	"aer", " [..]", "handle ESIL registers like 'ar' or 'dr' does",
@@ -306,7 +303,7 @@ static const char *help_msg_aeg[] = {
 	"aeg", "", "analyze current instruction as an esil graph",
 	"aegf", "", "analyze given expression and filter for register",
 	"aeg*", "", "analyze current instruction as an esil graph",
-	"aegv" "", "analyse and launch the visual interactive mode (.aeg*;aggv == aegv)",
+	"aegv", "", "analyse and launch the visual interactive mode (.aeg*;aggv == aegv)",
 	NULL
 };
 
@@ -1189,12 +1186,7 @@ static int cmd_an(RCore *core, bool use_json, const char *name) {
 				r_cons_println (f->name);
 			} else {
 				pj_o (pj);
-				if (name) {
-					pj_ks (pj, "old_name", f->name);
-					pj_ks (pj, "new_name", name);
-				} else {
-					pj_ks (pj, "name", f->name);
-				}
+				pj_ks (pj, "name", f->name);
 				if (f->realname) {
 					pj_ks (pj, "realname", f->realname);
 				}
@@ -1280,7 +1272,7 @@ static int var_cmd(RCore *core, const char *str) {
 		r_core_cmd0 (core, "afvr");
 		return true;
 	}
-	if (!str[0] || str[1] == '?'|| str[0] == '?') {
+	if (str[1] == '?'|| str[0] == '?') {
 		var_help (core, *str);
 		return res;
 	}
@@ -5895,13 +5887,6 @@ static void cmd_aespc(RCore *core, ut64 addr, ut64 until_addr, int off) {
 	r_reg_setv (core->dbg->reg, "SP", cursp);
 }
 
-static const char _handler_no_name[] = "<no name>";
-static int _aeli_iter(dictkv* kv, void* ud) {
-	RAnalEsilInterrupt* interrupt = kv->u;
-	r_cons_printf ("%3" PFMT64x ": %s\n", kv->k, interrupt->handler->name ? interrupt->handler->name : _handler_no_name);
-	return 0;
-}
-
 static void r_anal_aefa(RCore *core, const char *arg) {
 	ut64 to = r_num_math (core->num, arg);
 	ut64 at, from = core->offset;
@@ -6086,7 +6071,7 @@ static void cmd_aeg(RCore *core, int argc, char *argv[]) {
 		r_core_cmd0 (core, ".aeg*;agg");
 		return;
 	}
-	if (argc == 1) {	// "aeg"
+	if ((argc == 1) && !argv[0][0]) {	// "aeg"
 		RAnalEsilDFG *dfg = r_anal_esil_dfg_expr (core->anal, NULL, argv[0]);
 		r_return_if_fail (dfg);
 		print_esil_dfg_as_commands (core, dfg);
@@ -6119,7 +6104,7 @@ static void cmd_aeg(RCore *core, int argc, char *argv[]) {
 		if (!hc) {
 			return;
 		}
-		r_config_hold_s (hc, "cmd.gprompt",  NULL);
+		r_config_hold (hc, "cmd.gprompt",  NULL);
 		r_config_set (core->config, "cmd.gprompt", "pi 1");
 		r_core_cmd0 (core, ".aeg*;aggv");
 		r_config_hold_free (hc);
@@ -6524,29 +6509,6 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 			}
 		}
 		break;
-	case 'l': // ael commands
-		switch (input[1]) {
-		case 'i': // aeli interrupts
-			switch (input[2]) {
-			case ' ': // "aeli" with arguments
-				if (!r_anal_esil_load_interrupts_from_lib (esil, input + 3)) {
-					eprintf ("Failed to load interrupts from '%s'.", input + 3);
-				}
-				break;
-			case 0: // "aeli" with no args
-				if (esil && esil->interrupts) {
-					dict_foreach (esil->interrupts, _aeli_iter, NULL);
-				}
-				break;
-			case 'r': // "aelir"
-				if (esil && esil->interrupts) {
-					RAnalEsilInterrupt* interrupt = dict_getu (esil->interrupts, r_num_math (core->num, input + 3));
-					r_anal_esil_interrupt_free (esil, interrupt);
-				}
-				break;
-			}
-		}
-		break;
 	case 'g': // "aeg"
 		{
 			int argc;
@@ -6614,29 +6576,37 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 		}
 		break;
 	case 'A': // "aeA"
-		if (input[1] == '?') {
+		switch (input[1]){
+		case '?':
 			r_core_cmd_help (core, help_msg_aea);
-		} else if (input[1] == 'r') {
+			break;
+		case 'r':
 			cmd_aea (core, 1 + (1<<1), core->offset, r_num_math (core->num, input+2));
-		} else if (input[1] == 'w') {
+			break;
+		case 'w':
 			cmd_aea (core, 1 + (1<<2), core->offset, r_num_math (core->num, input+2));
-		} else if (input[1] == 'n') {
+			break;
+		case 'n':
 			cmd_aea (core, 1 + (1<<3), core->offset, r_num_math (core->num, input+2));
-		} else if (input[1] == 'j') {
+			break;
+		case 'j':
 			cmd_aea (core, 1 + (1<<4), core->offset, r_num_math (core->num, input+2));
-		} else if (input[1] == '*') {
+			break;
+		case '*':
 			cmd_aea (core, 1 + (1<<5), core->offset, r_num_math (core->num, input+2));
-		} else if (input[1] == 'f') {
+			break;
+		case 'f': {
 			RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, -1);
 			if (fcn) {
 				cmd_aea (core, 1, r_anal_function_min_addr (fcn), r_anal_function_linear_size (fcn));
 			}
-		} else {
+			break;
+			}
+		default:
 			cmd_aea (core, 1, core->offset, (int)r_num_math (core->num, input[1]?input+2:input+1));
 		}
 		break;
-	case 'a': // "aea"
-		{
+	case 'a': {// "aea"
 		RReg *reg = core->anal->reg;
 		ut64 pc = r_reg_getv (reg, "PC");
 		RAnalOp *op = r_core_anal_op (core, pc, 0);
@@ -6645,19 +6615,26 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 		}
 		ut64 newPC = core->offset + op->size;
 		r_reg_setv (reg, "PC", newPC);
-		if (input[1] == '?') {
+		switch (input[1]) {
+		case '?':
 			r_core_cmd_help (core, help_msg_aea);
-		} else if (input[1] == 'r') {
+			break;
+		case 'r':
 			cmd_aea (core, 1<<1, core->offset, r_num_math (core->num, input+2));
-		} else if (input[1] == 'w') {
+			break;
+		case 'w':
 			cmd_aea (core, 1<<2, core->offset, r_num_math (core->num, input+2));
-		} else if (input[1] == 'n') {
+			break;
+		case 'n':
 			cmd_aea (core, 1<<3, core->offset, r_num_math (core->num, input+2));
-		} else if (input[1] == 'j') {
+			break;
+		case 'j':
 			cmd_aea (core, 1<<4, core->offset, r_num_math (core->num, input+2));
-		} else if (input[1] == '*') {
+			break;
+		case '*':
 			cmd_aea (core, 1<<5, core->offset, r_num_math (core->num, input+2));
-		} else if (input[1] == 'b') { // "aeab"
+			break;
+		case 'B': { // "aeaB"
 			bool json = input[2] == 'j';
 			int a = json? 3: 2;
 			ut64 addr = (input[a] == ' ')? r_num_math (core->num, input + a): core->offset;
@@ -6669,9 +6646,10 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 				cmd_aea (core, mode, b->addr, b->size);
 				break;
 			}
-		} else if (input[1] == 'f') {
+			break;
+		}
+		case 'f': { // "aeaf"
 			RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, -1);
-                        // "aeafj"
 			if (fcn) {
 				switch (input[2]) {
 				case 'j': // "aeafj"
@@ -6683,7 +6661,8 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 				}
 				break;
 			}
-		} else if (input[1] == 'b') { // "aeab"
+		}
+		case 'b': { // "aeab"
 			RAnalBlock *bb = r_anal_bb_from_offset (core->anal, core->offset);
 			if (bb) {
 				switch (input[2]) {
@@ -6695,14 +6674,16 @@ static void cmd_anal_esil(RCore *core, const char *input) {
 					break;
 				}
 			}
-		} else {
+			}
+		default: {
 			const char *arg = input[1]? input + 2: "";
 			ut64 len = r_num_math (core->num, arg);
 			cmd_aea (core, 0, core->offset, len);
+			}
 		}
 		r_reg_setv (reg, "PC", pc);
-}
 		break;
+	}
 	case 'x': { // "aex"
 		char *hex;
 		int ret, bufsz;
@@ -8174,6 +8155,7 @@ static void cmd_anal_hint(RCore *core, const char *input) {
 		} else if (input[1] == '-') { // "ahr-"
 			r_anal_hint_unset_ret (core->anal, core->offset);
 		}
+		break;
 	case '*': // "ah*"
 	case 'j': // "ahj"
 	case '\0': // "ah"
@@ -8887,7 +8869,7 @@ static void cmd_anal_graph(RCore *core, const char *input) {
 		case 'J': { // "agfJ"
 			// Honor asm.graph=false in json as well
 			RConfigHold *hc = r_config_hold_new (core->config);
-			r_config_hold_i (hc, "asm.offset", NULL);
+			r_config_hold (hc, "asm.offset", NULL);
 			const bool o_graph_offset = r_config_get_i (core->config, "graph.offset");
 			r_config_set_i (core->config, "asm.offset", o_graph_offset);
 			r_core_anal_graph (core, r_num_math (core->num, input + 2),
@@ -9689,6 +9671,7 @@ static int cmd_anal_all(RCore *core, const char *input) {
 			cmd_anal_calls (core, input + 1, false, false);
 			break;
 		}
+		break;
 	case 'j': // "aaj"
 		cmd_anal_jumps (core, input + 1);
 		break;
