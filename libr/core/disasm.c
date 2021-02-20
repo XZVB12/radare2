@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2020 - nibble, pancake, dso */
+/* radare - LGPL - Copyright 2009-2021 - nibble, pancake, dso */
 
 #include "r_core.h"
 
@@ -624,7 +624,7 @@ static RDisasmState * ds_init(RCore *core) {
 	ds->atabsonce = r_config_get_i (core->config, "asm.tabs.once");
 	ds->atabsoff = r_config_get_i (core->config, "asm.tabs.off");
 	ds->midflags = r_config_get_i (core->config, "asm.flags.middle");
-	ds->midbb = r_config_get_i (core->config, "asm.bb.middle");
+	ds->midbb = r_config_get_i (core->config, "asm.bbmiddle");
 	ds->midcursor = r_config_get_i (core->config, "asm.midcursor");
 	ds->decode = r_config_get_i (core->config, "asm.decode");
 	core->parser->pseudo = ds->pseudo = r_config_get_i (core->config, "asm.pseudo");
@@ -649,7 +649,7 @@ static RDisasmState * ds_init(RCore *core) {
 	ds->asm_types = r_config_get_i (core->config, "asm.types");
 	ds->foldxrefs = r_config_get_i (core->config, "asm.xrefs.fold");
 	ds->show_lines = r_config_get_i (core->config, "asm.lines");
-	ds->show_lines_bb = ds->show_lines ? r_config_get_i (core->config, "asm.lines.bb") : false;
+	ds->show_lines_bb = ds->show_lines ? r_config_get_i (core->config, "asm.lines.jmp") : false;
 	ds->linesright = r_config_get_i (core->config, "asm.lines.right");
 	ds->show_indent = r_config_get_i (core->config, "asm.indent");
 	ds->indent_space = r_config_get_i (core->config, "asm.indentspace");
@@ -668,7 +668,7 @@ static RDisasmState * ds_init(RCore *core) {
 	ds->asm_describe = r_config_get_i (core->config, "asm.describe");
 	ds->show_offset = r_config_get_i (core->config, "asm.offset");
 	ds->show_offdec = r_config_get_i (core->config, "asm.decoff");
-	ds->show_bbline = r_config_get_i (core->config, "asm.bb.line");
+	ds->show_bbline = r_config_get_i (core->config, "asm.lines.bb");
 	ds->show_section = r_config_get_i (core->config, "asm.section");
 	ds->show_section_col = r_config_get_i (core->config, "asm.section.col");
 	ds->show_section_perm = r_config_get_i (core->config, "asm.section.perm");
@@ -2037,10 +2037,19 @@ static void ds_print_pre(RDisasmState *ds, bool fcnline) {
 	default:
 		return;
 	}
-
-	r_cons_printf ("%s%s%s ",
-		COLOR (ds, color_fline), c,
-		COLOR_RESET (ds));
+	char *kolor = strdup (ds->color_fline);
+	RAnalBlock *bb;
+	RList *list = r_anal_get_blocks_in (core->anal, ds->at);
+	RListIter *iter;
+	r_list_foreach (list, iter, bb) {
+		if (bb->color.r || bb->color.g || bb->color.b) {
+			kolor = r_cons_rgb_str (NULL, -1, &bb->color);
+			break;
+		}
+	}
+	r_cons_printf ("%s%s%s ", kolor, c, COLOR_RESET (ds));
+	r_list_free (list);
+	free (kolor);
 }
 
 static void ds_show_comments_describe(RDisasmState *ds) {
@@ -4485,40 +4494,46 @@ static void ds_print_esil_anal_init(RDisasmState *ds) {
 }
 
 static void ds_print_bbline(RDisasmState *ds) {
-	if (ds->show_bbline && ds->at) {
-		RAnalBlock *bb = NULL;
-		RAnalFunction *f_before = NULL;
-		if (ds->fcn) {
-			bb = r_anal_fcn_bbget_at (ds->core->anal, ds->fcn, ds->at);
+	if (!ds->show_bbline || !ds->at) {
+		return;
+	}
+	RAnalBlock *bb = NULL;
+	RAnalFunction *f_before = NULL;
+	if (ds->fcn) {
+		bb = r_anal_fcn_bbget_at (ds->core->anal, ds->fcn, ds->at);
+	} else {
+		f_before = fcnIn (ds, ds->at - 1, R_ANAL_FCN_TYPE_NULL);
+	}
+	if ((ds->fcn && bb && ds->fcn->addr != ds->at) || (!ds->fcn && f_before)) {
+		ds_begin_line (ds);
+		// adapted from ds_setup_pre ()
+		ds->cmtcount = 0;
+		if (!ds->show_functions || !ds->show_lines_fcn) {
+			ds->pre = DS_PRE_NONE;
 		} else {
-			f_before = fcnIn (ds, ds->at - 1, R_ANAL_FCN_TYPE_NULL);
-		}
-		if ((ds->fcn && bb && ds->fcn->addr != ds->at) || (!ds->fcn && f_before)) {
-			ds_begin_line (ds);
-			// adapted from ds_setup_pre ()
-			ds->cmtcount = 0;
-			if (!ds->show_functions || !ds->show_lines_fcn) {
-				ds->pre = DS_PRE_NONE;
-			} else {
-				ds->pre = DS_PRE_EMPTY;
-				if (!f_before) {
-					f_before = fcnIn (ds, ds->at - 1, R_ANAL_FCN_TYPE_NULL);
-				}
-				if (f_before == ds->fcn) {
-					ds->pre = DS_PRE_FCN_MIDDLE;
-				}
+			ds->pre = DS_PRE_EMPTY;
+			if (!f_before) {
+				f_before = fcnIn (ds, ds->at - 1, R_ANAL_FCN_TYPE_NULL);
 			}
-			ds_print_pre (ds, true);
-			if (!ds->linesright && ds->show_lines_bb && ds->line) {
-				char *refline, *reflinecol = NULL;
-				ds_update_ref_lines (ds);
-				refline = ds->refline2;
-				reflinecol = ds->prev_line_col;
-				ds_print_ref_lines (refline, reflinecol, ds);
+			if (f_before == ds->fcn) {
+				ds->pre = DS_PRE_FCN_MIDDLE;
 			}
-			r_cons_printf ("|");
-			ds_newline (ds);
 		}
+		ds_print_pre (ds, true);
+		if (ds->show_section && ds->line_col) {
+			const char *sn = r_core_get_section_name (ds->core, ds->at);
+			size_t snl = strlen (sn) + 4;
+			r_cons_printf ("%s", r_str_pad (' ', R_MAX (10, snl - 1)));
+		}
+		if (!ds->linesright && ds->show_lines_bb && ds->line) {
+			char *refline, *reflinecol = NULL;
+			ds_update_ref_lines (ds);
+			refline = ds->refline2;
+			reflinecol = ds->prev_line_col;
+			ds_print_ref_lines (refline, reflinecol, ds);
+		}
+		r_cons_printf ("|");
+		ds_newline (ds);
 	}
 }
 
@@ -6352,7 +6367,7 @@ R_API int r_core_disasm_pdi_with_buf(RCore *core, ut64 address, ut8 *buf, ut32 n
 	r_cons_break_push (NULL, NULL);
 	r_core_seek (core, address, false);
 	int midflags = r_config_get_i (core->config, "asm.flags.middle");
-	int midbb = r_config_get_i (core->config, "asm.bb.middle");
+	int midbb = r_config_get_i (core->config, "asm.bbmiddle");
 	bool asmmarks = r_config_get_i (core->config, "asm.marks");
 	r_config_set_b (core->config, "asm.marks", false);
 	i = 0;

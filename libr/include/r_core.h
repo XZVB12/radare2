@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake */
+/* radare - LGPL - Copyright 2009-2021 - pancake */
 
 #ifndef R2_CORE_H
 #define R2_CORE_H
@@ -56,6 +56,7 @@ R_LIB_VERSION_HEADER(r_core);
 #define R_FLAGS_FS_FUNCTIONS "functions"
 #define R_FLAGS_FS_IMPORTS "imports"
 #define R_FLAGS_FS_RELOCS "relocs"
+#define R_FLAGS_FS_REGISTERS "registers"
 #define R_FLAGS_FS_RESOURCES "resources"
 #define R_FLAGS_FS_SECTIONS "sections"
 #define R_FLAGS_FS_SEGMENTS "segments"

@@ -1263,7 +1263,7 @@ static void cmd_print_fromage(RCore *core, const char *input, const ut8* data, i
 		break;
 	case 'b': // "pFb"
 		{
-			char *s = r_protobuf_decode(data, size, input[1] == 'v');
+			char *s = r_protobuf_decode (data, size, input[1] == 'v');
 			if (s) {
 				r_cons_printf ("%s", s);
 				free (s);
@@ -4128,7 +4128,7 @@ static void __printPattern(RCore *core, const char *_input) {
 
 static void pr_bb(RCore *core, RAnalFunction *fcn, RAnalBlock *b, bool emu, ut64 saved_gp, ut8 *saved_arena, char p_type, bool fromHere) {
 	bool show_flags = r_config_get_i (core->config, "asm.flags");
-	const char *orig_bb_middle = r_config_get (core->config, "asm.bb.middle");
+	const char *orig_bb_middle = r_config_get (core->config, "asm.bbmiddle");
 	core->anal->gp = saved_gp;
 	if (fromHere) {
 		if (b->addr < core->offset) {
@@ -4153,11 +4153,11 @@ static void pr_bb(RCore *core, RAnalFunction *fcn, RAnalBlock *b, bool emu, ut64
 	if (b->parent_stackptr != INT_MAX) {
 		core->anal->stackptr = b->parent_stackptr;
 	}
-	r_config_set_i (core->config, "asm.bb.middle", false);
+	r_config_set_i (core->config, "asm.bbmiddle", false);
 	p_type == 'D'
 	? r_core_cmdf (core, "pD %"PFMT64u" @0x%"PFMT64x, b->size, b->addr)
 	: r_core_cmdf (core, "pI %"PFMT64u" @0x%"PFMT64x, b->size, b->addr);
-	r_config_set (core->config, "asm.bb.middle", orig_bb_middle);
+	r_config_set (core->config, "asm.bbmiddle", orig_bb_middle);
 
 	if (b->jump != UT64_MAX) {
 		if (b->jump > b->addr) {
@@ -4319,8 +4319,8 @@ static void disasm_recursive(RCore *core, ut64 addr, int count, char type_print)
 static void func_walk_blocks(RCore *core, RAnalFunction *f, char input, char type_print, bool fromHere) {
 	RListIter *iter;
 	RAnalBlock *b = NULL;
-	const char *orig_bb_middle = r_config_get (core->config, "asm.bb.middle");
-	r_config_set_i (core->config, "asm.bb.middle", false);
+	const char *orig_bb_middle = r_config_get (core->config, "asm.bbmiddle");
+	r_config_set_i (core->config, "asm.bbmiddle", false);
 	PJ *pj = NULL;
 
 	// XXX: hack must be reviewed/fixed in code analysis
@@ -4361,7 +4361,7 @@ static void func_walk_blocks(RCore *core, RAnalFunction *f, char input, char typ
 		r_cons_printf ("%s\n", pj_string (pj));
 		pj_free (pj);
 	} else {
-		bool asm_lines = r_config_get_i (core->config, "asm.lines.bb");
+		bool asm_lines = r_config_get_i (core->config, "asm.lines.jmp");
 		bool emu = r_config_get_i (core->config, "asm.emu");
 		ut64 saved_gp = 0;
 		ut8 *saved_arena = NULL;
@@ -4370,7 +4370,7 @@ static void func_walk_blocks(RCore *core, RAnalFunction *f, char input, char typ
 			saved_gp = core->anal->gp;
 			saved_arena = r_reg_arena_peek (core->anal->reg);
 		}
-		r_config_set_i (core->config, "asm.lines.bb", 0);
+		r_config_set_i (core->config, "asm.lines.jmp", 0);
 		r_list_foreach (f->bbs, iter, b) {
 			pr_bb (core, f, b, emu, saved_gp, saved_arena, type_print, fromHere);
 		}
@@ -4382,9 +4382,9 @@ static void func_walk_blocks(RCore *core, RAnalFunction *f, char input, char typ
 			}
 		}
 		core->anal->stackptr = saved_stackptr;
-		r_config_set_i (core->config, "asm.lines.bb", asm_lines);
+		r_config_set_i (core->config, "asm.lines.jmp", asm_lines);
 	}
-	r_config_set (core->config, "asm.bb.middle", orig_bb_middle);
+	r_config_set (core->config, "asm.bbmiddle", orig_bb_middle);
 }
 
 static inline char cmd_pxb_p(char input) {
@@ -4624,6 +4624,26 @@ static void cmd_pxr(RCore *core, int len, int mode, int wordsize, const char *ar
 		core->print->flags &= ~R_PRINT_FLAGS_REFS;
 		core->print->cols = ocols;
 	}
+}
+
+static ut8 *decode_text(RCore *core, ut64 offset, size_t len, bool zeroend) {
+	const char *current_charset = r_config_get (core->config, "cfg.charset");
+	ut8 *out = calloc (len, 10);
+	if (out) {
+		r_io_read_at (core->io, core->offset, out, len);
+		if (zeroend) {
+			len = (size_t)r_str_nlen ((const char*)out, len);
+		}
+		if (!R_STR_ISEMPTY (current_charset)) {
+			size_t out_len = len * 10;
+			ut8 *data = out;
+			out = calloc (len, 10);
+			r_io_read_at (core->io, core->offset, data, len);
+			r_charset_encode_str (core->print->charset, out, out_len, data, len);
+			free (data);
+		}
+	}
+	return out;
 }
 
 static int cmd_print(void *data, const char *input) {
@@ -5418,8 +5438,8 @@ static int cmd_print(void *data, const char *input) {
 				if (f && input[2] == 'j') { // "pdfj"
 					RAnalBlock *b;
 					ut32 fcn_size = r_anal_function_realsize (f);
-					const char *orig_bb_middle = r_config_get (core->config, "asm.bb.middle");
-					r_config_set_i (core->config, "asm.bb.middle", false);
+					const char *orig_bb_middle = r_config_get (core->config, "asm.bbmiddle");
+					r_config_set_i (core->config, "asm.bbmiddle", false);
 					pj = pj_new ();
 					if (!pj) {
 						break;
@@ -5447,7 +5467,7 @@ static int cmd_print(void *data, const char *input) {
 					r_cons_printf ("%s\n", pj_string (pj));
 					pj_free (pj);
 					pd_result = 0;
-					r_config_set (core->config, "asm.bb.middle", orig_bb_middle);
+					r_config_set (core->config, "asm.bbmiddle", orig_bb_middle);
 				} else if (f) {
 					ut64 linearsz = r_anal_function_linear_size (f);
 					ut64 realsz = r_anal_function_realsize (f);
@@ -5632,15 +5652,6 @@ l = use_blocksize;
 		case '?': // "ps?"
 			r_core_cmd_help (core, help_msg_ps);
 			break;
-		case 'j': // "psj"
-			if (l > 0) {
-				if (input[2] == ' ' && input[3]) {
-					len = r_num_math (core->num, input + 3);
-					len = R_MIN (len, core->blocksize);
-				}
-				print_json_string (core, (const char *) core->block, len, NULL);
-			}
-			break;
 		case 'i': // "psi"
 			if (l > 0) {
 				ut8 *buf = malloc (1024 + 1);
@@ -5720,27 +5731,14 @@ l = use_blocksize;
 			break;
 		case 'z': // "psz"
 			if (l > 0) {
-				char *s = malloc (core->blocksize + 1);
-				int i, j;
-				if (s) {
-					// TODO: filter more chars?
-					for (i = j = 0; i < core->blocksize; i++) {
-						char ch = (char) core->block[i];
-						if (!ch) {
-							break;
-						}
-						if (IS_PRINTABLE (ch)) {
-							s[j++] = ch;
-						}
-					}
-					s[j] = '\0';
-					if (input[2] == 'j') { // pszj
-						print_json_string (core, (const char *) s, j, NULL);
-					} else {
-						r_cons_println (s);
-					}
-					free (s);
+				ut8 *s = decode_text (core, core->offset, l, true);
+				if (input[2] == 'j') { // pszj
+					print_json_string (core, (const char *) s,
+						r_str_nlen ((const char*)s, l), NULL);
+				} else {
+					r_print_string (core->print, core->offset, s, l, R_PRINT_STRING_ZEROEND);
 				}
+				free (s);
 			}
 			break;
 		case 'p': // "psp"
@@ -5780,28 +5778,18 @@ l = use_blocksize;
 				}
 			}
 			break;
-        case ' ': // "ps"
-		{
-			const char *current_charset = r_config_get (core->config, "cfg.charset");
-			if (R_STR_ISEMPTY (current_charset)) {
-				r_print_string (core->print, core->offset, core->block, l, 0);
-			} else {
-				if (len > 0) {
-					size_t out_len = len * 10;
-					ut8 *out = calloc (len, 10);
-					if (out) {
-						ut8 *data = malloc (len);
-						if (data) {
-							r_io_read_at (core->io, core->offset, data, len);
-							r_charset_encode_str (core->print->charset, out, out_len, data, len);
-							r_print_string (core->print, core->offset,
-								out, len, 0);
-							free (data);
-						}
-						free (out);
-					}
-				}
+		case 'j': // "psj"
+			{
+				ut8 *s = decode_text (core, core->offset, l, false);
+				print_json_string (core, (const char *) s, l, NULL);
+				free (s);
 			}
+			break;
+		case ' ': // "ps"
+		{
+			ut8 *s = decode_text (core, core->offset, l, false);
+			r_print_string (core->print, core->offset, s, l, 0);
+			free (s);
 			break;
 		}
 		case 'u': // "psu"
@@ -6650,7 +6638,15 @@ l = use_blocksize;
 				r_cons_printf ("|Usage: p2 [number of bytes representing tiles]\n"
 					"NOTE: Only full tiles will be printed\n");
 			} else {
-				r_print_2bpp_tiles (core->print, core->block, len / 16);
+				RConsContext *c = core->cons->context;
+				const char **colors = (const char *[]) {
+					c->pal.mov, //black
+					c->pal.nop, //dark
+					c->pal.cmp, //light
+					c->pal.jmp, //white
+				};
+				const int cols = r_config_get_i (core->config, "hex.cols");
+				r_print_2bpp_tiles (core->print, core->block, len - 1, cols / 4, colors);
 			}
 		}
 		break;

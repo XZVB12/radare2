@@ -1226,15 +1226,13 @@ static bool cb_cfgcharset(void *user, void *data) {
 	}
 
 	const char *cs = R2_PREFIX R_SYS_DIR R2_SDB R_SYS_DIR "charsets" R_SYS_DIR;
-	bool rc = true;
+	bool rc = false;
 	if (*cf == '?') {
 		list_available_plugins (cs);
 	} else {
 		char *syscs = r_str_newf ("%s%s.sdb", cs, cf);
 		if (r_file_exists (syscs)) {
 			rc = r_charset_open (core->print->charset, syscs);
-		} else {
-			rc = r_charset_open (core->print->charset, cf);
 		}
 		if (!rc) {
 			eprintf ("Warning: Cannot load charset file '%s' '%s'.\n", syscs, cf);
@@ -1509,6 +1507,13 @@ static bool cb_dbg_btalgo(void *user, void *data) {
 	}
 	free (core->dbg->btalgo);
 	core->dbg->btalgo = strdup (node->value);
+	return true;
+}
+
+static bool cb_dbg_maxsnapsize(void *user, void *data) {
+	RCore *core = (RCore*) user;
+	RConfigNode *node = (RConfigNode*) data;
+	core->dbg->maxsnapsize = r_num_math (core->num, node->value);
 	return true;
 }
 
@@ -3277,11 +3282,10 @@ R_API int r_core_config_init(RCore *core) {
 	SETDESC (n, "Realign disassembly if there is a flag in the middle of an instruction");
 	SETCB ("asm.flags.real", "false", &cb_flag_realnames,
 	       "Show flags' unfiltered realnames instead of names, except realnames from demangling");
-	SETBPREF ("asm.bb.line", "false", "Show empty line after every basic block");
-	SETBPREF ("asm.bb.middle", "true", "Realign disassembly if a basic block starts in the middle of an instruction");
 	SETBPREF ("asm.lbytes", "true", "Align disasm bytes to left");
 	SETBPREF ("asm.lines", "true", "Show ASCII-art lines at disassembly");
-	SETBPREF ("asm.lines.bb", "true", "Show flow lines at jumps");
+	SETBPREF ("asm.lines.jmp", "true", "Show flow lines at jumps");
+	SETBPREF ("asm.lines.bb", "false", "Show empty line after every basic block");
 	SETBPREF ("asm.lines.call", "false", "Enable call lines");
 	SETBPREF ("asm.lines.ret", "false", "Show separator lines after ret");
 	SETBPREF ("asm.lines.out", "true", "Show out of block lines");
@@ -3292,6 +3296,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETICB ("asm.sub.varmin", 0x100, &cb_asmsubvarmin, "Minimum value to substitute in instructions (asm.sub.var)");
 	SETCB ("asm.sub.tail", "false", &cb_asmsubtail, "Replace addresses with prefix .. syntax");
 	SETBPREF ("asm.middle", "false", "Allow disassembling jumps in the middle of an instruction");
+	SETBPREF ("asm.bbmiddle", "true", "Realign disassembly if a basic block starts in the middle of an instruction");
 	SETBPREF ("asm.noisy", "true", "Show comments considered noisy but possibly useful");
 	SETBPREF ("asm.offset", "true", "Show offsets in disassembly");
 	SETBPREF ("hex.offset", "true", "Show offsets in hex-dump");
@@ -3535,6 +3540,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETI ("stack.size", 64,  "Size in bytes of stack hexdump in visual debug");
 	SETI ("stack.delta", 0,  "Delta for the stack dump");
 
+	SETCB ("dbg.maxsnapsize", "32M", &cb_dbg_maxsnapsize, "Dont make snapshots of maps bigger than a specific size");
 	SETCB ("dbg.libs", "", &cb_dbg_libs, "If set stop when loading matching libname");
 	SETBPREF ("dbg.skipover", "false", "Make dso perform a dss (same goes for esil and visual/graph");
 	SETI ("dbg.hwbp", 0, "Set HW or SW breakpoints");

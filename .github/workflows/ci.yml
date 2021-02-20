@@ -17,7 +17,9 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
     - name: Installing with symlinks
-      run: sys/install.sh
+      run: |
+        export CFLAGS="-O2 -Werror -Wno-unused-result -Wno-stringop-truncation"
+        sys/install.sh
     - name: Uninstalling
       run: sudo make uninstall
     - name: Reinstalling without symlinks
@@ -60,6 +62,7 @@ jobs:
         find "/tmp/r 2"
         LD_LIBRARY_PATH="/tmp/r 2/lib/x86_64-linux-gnu/" "/tmp/r 2/bin/r2" -v
   w32-meson:
+    if: contains(github.ref, 'master') || contains(github.ref, 'ci-')
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -151,25 +154,20 @@ jobs:
         cp -f dist/plugins-cfg/plugins.static.nogpl.cfg plugins.cfg
         NOLTO=1 sys/static.sh
         make -C binr/blob
-        xz binr/blob/radare2
+        tar cJvf r2-static.tar.xz r2-static
     - name: Pub
       uses: actions/upload-artifact@v2
       with:
-        name: radare2-static.xz
-        path: binr/blob/radare2.xz
+        name: r2-static.tar.xz
+        path: r2-static.tar.xz
     - name: Static static r2 with meson 
       run: |
         sudo apt-get --assume-yes install python3-wheel python3-setuptools cabextract
         sudo pip3 install meson==0.55.3 ninja==1.10.0
         CFLAGS="-static" LDFLAGS="-static" meson --prefix=${HOME}/.local --buildtype release --default-library static build
         ninja -C build && ninja -C build install
-    - name: Pub
-      uses: actions/upload-artifact@v2
-      with:
-        name: radare2-static.xz
-        path: binr/blob/radare2.xz
-  linux-acr-deb:
-    runs-on: ubuntu-latest
+  linux-acr-deb-64:
+    runs-on: ubuntu-18.04
     steps:
     - name: Checkout
       uses: actions/checkout@v2
@@ -179,6 +177,22 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: radare2_debian_amd64.zip
+        path: dist/debian/*/*.deb
+  linux-acr-deb-32:
+    runs-on: ubuntu-18.04
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Packaging for 32bit Debian
+      run: |
+        sudo apt install gcc-multilib
+        export CFLAGS=-m32
+        export ARCH=i386
+        sys/debian.sh
+    - name: Pub
+      uses: actions/upload-artifact@v2
+      with:
+        name: radare2_debian_i386.zip
         path: dist/debian/*/*.deb
 ## RPM PACKAGES DISABLED
 #  linux-meson-rpm:
@@ -276,7 +290,12 @@ jobs:
     - name: Packaging
       run: dist/macos/build-pkg.sh
     - name: Building Radare2
-      run: sys/install.sh
+      run: |
+        # treesitter doesnt build with this because of treesitter
+        export CFLAGS="-O2 -Werror -Wno-unused-result -std=gnu89 -Wno-unicode"
+        export CFLAGS="-O2 -Werror -Wno-unused-result -Wno-unicode -Wno-unneeded-internal-declaration"
+        export CFLAGS="-O2"
+        sys/install.sh && make -C dist/macos
     - name: Pub
       uses: actions/upload-artifact@v2
       with:
@@ -329,6 +348,7 @@ jobs:
         path: ./dist/cydia/radare2*/*.deb
 
   android-acr-aarch64:
+    if: contains(github.ref, 'master') || contains(github.ref, 'ci-')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -347,6 +367,7 @@ jobs:
         path: radare2*android*aarch64.tar.gz
 
   android-meson:
+    if: contains(github.ref, 'master') || contains(github.ref, 'ci-')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

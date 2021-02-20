@@ -261,14 +261,19 @@ else
 endif
 
 # handle openssl library
-static_sys_openssl = get_option('static_sys_openssl')
-sys_openssl = dependency('openssl', required: false, static: static_sys_openssl)
-use_sys_openssl = false
-if sys_openssl.found() and get_option('use_sys_openssl')
-  message('Using system openssl library')
-  use_sys_openssl = true
+if get_option('use_ssl')
+  static_sys_openssl = get_option('static_sys_openssl')
+  sys_openssl = dependency('openssl', required: false, static: static_sys_openssl)
+  use_sys_openssl = false
+  if sys_openssl.found() and get_option('use_sys_openssl')
+    message('Using system openssl library')
+    use_sys_openssl = true
+  else
+    message('Using bundled openssl code')
+  endif
 else
-  message('Using bundled openssl code')
+  sys_openssl = false
+  use_sys_openssl = false
 endif
 
 # handle libuv library
@@ -462,6 +467,7 @@ sdb_files = [
   'shlr/sdb/src/ht_uu.c',
   'shlr/sdb/src/ht_up.c',
   'shlr/sdb/src/ht_pp.c',
+  'shlr/sdb/src/ht_pu.c',
   'shlr/sdb/src/journal.c',
   'shlr/sdb/src/json.c',
   'shlr/sdb/src/lock.c',
@@ -498,6 +504,7 @@ sdb_inc_files = [
   'shlr/sdb/src/ht_pp.h',
   'shlr/sdb/src/ht_up.h',
   'shlr/sdb/src/ht_uu.h',
+  'shlr/sdb/src/ht_pu.h',
   'shlr/sdb/src/ls.h',
   'shlr/sdb/src/sdb.h',
   'shlr/sdb/src/sdbht.h',

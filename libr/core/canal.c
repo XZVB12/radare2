@@ -92,11 +92,9 @@ static int cmpaddr(const void *_a, const void *_b) {
 static char *get_function_name(RCore *core, ut64 addr) {
 	RBinFile *bf = r_bin_cur (core->bin);
 	if (bf && bf->o) {
-		Sdb *kv = bf->o->addr2klassmethod;
-		char *at = sdb_fmt ("0x%08"PFMT64x, addr);
-		char *res = sdb_get (kv, at, 0);
-		if (res) {
-			return res;
+		RBinSymbol *sym = ht_up_find (bf->o->addr2klassmethod, addr, NULL);
+		if (sym && sym->classname && sym->name) {
+			return r_str_newf ("method.%s.%s", sym->classname, sym->name);
 		}
 	}
 	RFlagItem *flag = r_core_flag_get_by_spaces (core->flags, addr);
@@ -1606,7 +1604,6 @@ static int core_anal_graph_construct_nodes(RCore *core, RAnalFunction *fcn, int 
 			sdb_num_set (DB, key, bbi->size, 0); // bb.<addr>.size=<num>
 		} else if (is_json) {
 			RDebugTracepoint *t = r_debug_trace_get (core->dbg, bbi->addr);
-			ut8 *buf = malloc (bbi->size);
 			pj_o (pj);
 			pj_kn (pj, "offset", bbi->addr);
 			pj_kn (pj, "size", bbi->size);
@@ -1645,9 +1642,14 @@ static int core_anal_graph_construct_nodes(RCore *core, RAnalFunction *fcn, int 
 				pj_ki (pj, "times", t->times);
 				pj_end (pj);
 			}
-			pj_kn (pj, "colorize", bbi->colorize);
+			if (bbi->color.r || bbi->color.g || bbi->color.b) {
+				char *s = r_cons_rgb_tostring (bbi->color.r, bbi->color.g, bbi->color.b);
+				pj_ks (pj, "color", s);
+				free (s);
+			}
 			pj_k (pj, "ops");
 			pj_a (pj);
+			ut8 *buf = malloc (bbi->size);
 			if (buf) {
 				r_io_read_at (core->io, bbi->addr, buf, bbi->size);
 				if (is_json_format_disasm) {
@@ -2129,6 +2131,7 @@ R_API int r_core_print_bb_gml(RCore *core, RAnalFunction *fcn) {
 	r_list_foreach (fcn->bbs, iter, bb) {
 		RFlagItem *flag = r_flag_get_i (core->flags, bb->addr);
 		char *msg = flag? strdup (flag->name): r_str_newf ("0x%08"PFMT64x, bb->addr);
+		// TODO char *str = r_str_escape_dot (msg);
 #if USE_ID
 		ht_uu_insert (ht, bb->addr, id);
 		r_cons_printf ("  node [\n"
@@ -3249,8 +3252,14 @@ R_API int r_core_anal_fcn_list(RCore *core, const char *input, const char *rad) 
 		return 0;
 	}
 	if (*rad == '.') {
-		RAnalFunction *fcn = r_anal_get_function_at (core->anal, core->offset);
-		__fcn_print_default (core, fcn, false);
+		RList *fcns = r_anal_get_functions_in (core->anal, core->offset);
+		if (!fcns || r_list_empty (fcns)) {
+			eprintf ("No functions at current address.\n");
+			r_list_free (fcns);
+			return -1;
+		}
+		fcn_list_default (core, fcns, false);
+		r_list_free (fcns);
 		return 0;
 	}
 
