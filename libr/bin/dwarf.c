@@ -1025,11 +1025,8 @@ static size_t parse_opcodes(const RBin *bin, const ut8 *obuf,
 	return (size_t) (buf - obuf); // number of bytes we've moved by
 }
 
-static int parse_line_raw(const RBin *a, const ut8 *obuf,
-				       ut64 len, int mode) {
-
-	RBinFile *binfile = a ? a->cur : NULL;
-	r_return_val_if_fail(binfile && obuf, false);
+static bool parse_line_raw(const RBin *a, const ut8 *obuf, ut64 len, int mode) {
+	r_return_val_if_fail(a && obuf, false);
 	PrintfCallback print = a->cb_printf;
 
 	if (mode == R_MODE_PRINT) {
@@ -2064,7 +2061,7 @@ static RBinDwarfDebugInfo *parse_info_raw(Sdb *sdb, RBinDwarfDebugAbbrev *da,
 		}
 
 		if (da->decls->count >= da->capacity) {
-			eprintf ("WARNING: malformed dwarf have not enough buckets for decls.\n");
+			eprintf ("Warning: malformed dwarf have not enough buckets for decls.\n");
 		}
 		r_warn_if_fail (da->count <= da->capacity);
 

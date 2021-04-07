@@ -74,11 +74,31 @@ static void dyn_init(void) {
 		dyn_openpty = r_lib_dl_sym (NULL, "openpty");
 	}
 	if (!dyn_login_tty) {
-		dyn_openpty = r_lib_dl_sym (NULL, "login_tty");
+		dyn_login_tty = r_lib_dl_sym (NULL, "login_tty");
 	}
 	if (!dyn_forkpty) {
-		dyn_openpty = r_lib_dl_sym (NULL, "forkpty");
+		dyn_forkpty = r_lib_dl_sym (NULL, "forkpty");
 	}
+#if __UNIX__
+	// attempt to fall back on libutil if we failed to load anything
+	if (!(dyn_openpty && dyn_login_tty && dyn_forkpty)) {
+		void *libutil;
+		if (!(libutil = r_lib_dl_open ("libutil." R_LIB_EXT))) {
+			eprintf ("[ERROR] rarun2: Could not find PTY utils, failed to load %s\n", "libutil." R_LIB_EXT);
+			return;
+		}
+		if (!dyn_openpty) {
+			dyn_openpty = r_lib_dl_sym (libutil, "openpty");
+		}
+		if (!dyn_login_tty) {
+			dyn_login_tty = r_lib_dl_sym (libutil, "login_tty");
+		}
+		if (!dyn_forkpty) {
+			dyn_forkpty = r_lib_dl_sym (libutil, "forkpty");
+		}
+		r_lib_dl_close (libutil);
+	}
+#endif
 }
 
 #endif
@@ -858,6 +878,7 @@ R_API int r_run_config_env(RRunProfile *p) {
 			*q = 0;
 			if (!r_socket_connect_tcp (fd, p->_connect, q+1, 30)) {
 				eprintf ("Cannot connect\n");
+				r_socket_free (fd);
 				return 1;
 			}
 			if (p->_pty) {
@@ -1018,7 +1039,7 @@ R_API int r_run_config_env(RRunProfile *p) {
 #endif
 	if (p->_r2preload) {
 		if (p->_preload) {
-			eprintf ("WARNING: Only one library can be opened at a time\n");
+			eprintf ("Warning: Only one library can be opened at a time\n");
 		}
 #ifdef __WINDOWS__
 		p->_preload = r_str_r2_prefix (R_JOIN_2_PATHS (R2_LIBDIR, "libr2."R_LIB_EXT));

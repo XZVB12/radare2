@@ -1,4 +1,4 @@
-/* Copyright radare2 2014-2020 - Author: pancake, vane11ope */
+/* Copyright radare2 2014-2021 - Author: pancake, vane11ope */
 
 #include <r_core.h>
 
@@ -1220,8 +1220,8 @@ static void __fix_layout_w(RCore *core) {
 	int i = 0;
 	for (; i < panels->n_panels - 1; i++) {
 		RPanel *p = __get_panel (panels, i);
-		int64_t t = p->view->pos.x + p->view->pos.w;
-		r_list_append (list, (void *)(t));
+		int32_t t = p->view->pos.x + p->view->pos.w;
+		r_list_append (list, (void *)(size_t)(t));
 	}
 	RListIter *iter;
 	for (i = 0; i < panels->n_panels; i++) {
@@ -1233,16 +1233,17 @@ static void __fix_layout_w(RCore *core) {
 		int min = INT8_MAX;
 		int target_num = INT8_MAX;
 		bool found = false;
-		void *num = NULL;
-		r_list_foreach (list, iter, num) {
-			if ((int64_t)num - 1 == tx) {
+		void *numptr = NULL;
+		r_list_foreach (list, iter, numptr) {
+			st32 num = (st32)(size_t)(numptr);
+			if (num - 1 == tx) {
 				found = true;
 				break;
 			}
-			int sub = (int64_t)num - tx;
+			int sub = num - tx;
 			if (min > R_ABS (sub)) {
 				min = R_ABS (sub);
-				target_num = (int64_t)num;
+				target_num = num;
 			}
 		}
 		if (!found) {
@@ -1261,8 +1262,8 @@ static void __fix_layout_h(RCore *core) {
 	int i = 0;
 	for (; i < panels->n_panels - 1; i++) {
 		RPanel *p = __get_panel (panels, i);
-		int64_t t = p->view->pos.y + p->view->pos.h;
-		r_list_append (list, (void *)(t));
+		st32 t = p->view->pos.y + p->view->pos.h;
+		r_list_append (list, (void *)(size_t)(t));
 	}
 	RListIter *iter;
 	for (i = 0; i < panels->n_panels; i++) {
@@ -1275,16 +1276,17 @@ static void __fix_layout_h(RCore *core) {
 		int min = INT8_MAX;
 		int target_num = INT8_MAX;
 		bool found = false;
-		void *num = NULL;
-		r_list_foreach (list, iter, num) {
-			if ((int64_t)num - 1 == ty) {
+		void *numptr = NULL;
+		r_list_foreach (list, iter, numptr) {
+			st32 num = (st32)(size_t)(numptr);
+			if (num - 1 == ty) {
 				found = true;
 				break;
 			}
-			int sub = (int64_t)num - ty;
+			int sub = num - ty;
 			if (min > R_ABS (sub)) {
 				min = R_ABS (sub);
-				target_num = (int64_t)num;
+				target_num = num;
 			}
 		}
 		if (!found) {
@@ -2005,7 +2007,7 @@ static void __continue_modal_cb(void *user, R_UNUSED RPanel *panel, R_UNUSED con
 }
 
 static void __panel_single_step_in(RCore *core) {
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		r_core_cmd (core, "ds", 0);
 		r_core_cmd (core, ".dr*", 0);
 	} else {
@@ -2024,7 +2026,7 @@ static int __step_cb(void *user) {
 static void __panel_single_step_over(RCore *core) {
 	bool io_cache = r_config_get_i (core->config, "io.cache");
 	r_config_set_b (core->config, "io.cache", false);
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		r_core_cmd (core, "dso", 0);
 		r_core_cmd (core, ".dr*", 0);
 	} else {
@@ -2129,7 +2131,7 @@ static void __init_modal_db(RCore *core) {
 	sdb_ptr_set (db, "Create New", &__create_panel_input, 0);
 	sdb_ptr_set (db, "Change Command of Current Panel", &__replace_current_panel_input, 0);
 	sdb_ptr_set (db, PANEL_TITLE_ALL_DECOMPILER, &__delegate_show_all_decompiler_cb, 0);
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		sdb_ptr_set (db, "Put Breakpoints", &__put_breakpoints_cb, 0);
 		sdb_ptr_set (db, "Continue", &__continue_modal_cb, 0);
 		sdb_ptr_set (db, "Step", &__step_modal_cb, 0);
@@ -2311,7 +2313,7 @@ static bool __init(RCore *core, RPanels *panels, int w, int h) {
 	panels->panel = NULL;
 	panels->n_panels = 0;
 	panels->columnWidth = 80;
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		panels->layout = PANEL_LAYOUT_DEFAULT_DYNAMIC;
 	} else {
 		panels->layout = PANEL_LAYOUT_DEFAULT_STATIC;
@@ -3426,7 +3428,7 @@ static void __jmp_to_cursor_addr(RCore *core, RPanel *panel) {
 }
 
 static void __set_breakpoints_on_cursor(RCore *core, RPanel *panel) {
-	if (!r_config_get_i (core->config, "cfg.debug")) {
+	if (!r_config_get_b (core->config, "cfg.debug")) {
 		return;
 	}
 	if (__check_panel_type (panel, PANEL_CMD_DISASSEMBLY)) {
@@ -4436,7 +4438,7 @@ static void __print_disassembly_cb(void *user, void *p) {
 	ut64 o_offset = core->offset;
 	core->offset = panel->model->addr;
 	r_core_seek (core, panel->model->addr, true);
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		r_core_cmd (core, ".dr*", 0);
 	}
 	cmdstr = __handle_cmd_str_cache (core, panel, false);
@@ -5446,7 +5448,6 @@ static bool __init_panels_menu(RCore *core) {
 
 	{
 		parent = "View";
-		i = 0;
 		RList *list = __sorted_list (core, menus_View, COUNT (menus_View));
 		char *pos;
 		RListIter* iter;
@@ -5504,7 +5505,6 @@ static bool __init_panels_menu(RCore *core) {
 
 	{
 		parent = "Debug";
-		i = 0;
 		RList *list = __sorted_list (core, menus_Debug, COUNT (menus_Debug));
 		char *pos;
 		RListIter* iter;

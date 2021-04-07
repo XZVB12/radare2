@@ -30,7 +30,7 @@ typedef struct {
 static const char *printfmtSingle[NPF] = {
 	"xc",  // HEXDUMP
 	"pd $r",  // ASSEMBLY
-	"pxw 64@r:SP;dr=;pd $r",  // DEBUGGER
+	"pxw 64@r:SP;dr=;drcq;pd $r",  // DEBUGGER
 	"prc", // OVERVIEW
 	"pss", // PC//  copypasteable views
 };
@@ -56,7 +56,7 @@ static const char *printHexFormats[PRINT_HEX_FORMATS] = {
 };
 static int current3format = 0;
 static const char *print3Formats[PRINT_3_FORMATS] = { //  not used at all. its handled by the pd format
-	"pxw 64@r:SP;dr=;pd $r", // DEBUGGER
+	"pxw 64@r:SP;dr=;drcq;pd $r", // DEBUGGER
 	"pCD"
 };
 static int current4format = 0;
@@ -233,7 +233,7 @@ static bool __core_visual_gogo(RCore *core, int ch) {
 	switch (ch) {
 	case 'g':
 		if (core->io->va) {
-			RIOMap *map = r_io_map_get (core->io, core->offset);
+			RIOMap *map = r_io_map_get_at (core->io, core->offset);
 			if (!map && !r_pvector_empty (&core->io->maps)) {
 				map = r_pvector_at (&core->io->maps, r_pvector_len (&core->io->maps) - 1);
 			}
@@ -246,7 +246,7 @@ static bool __core_visual_gogo(RCore *core, int ch) {
 		r_io_sundo_push (core->io, core->offset, r_print_get_cursor (core->print));
 		return true;
 	case 'G':
-		map = r_io_map_get (core->io, core->offset);
+		map = r_io_map_get_at (core->io, core->offset);
 		if (!map && !r_pvector_empty (&core->io->maps)) {
 			map = r_pvector_at (&core->io->maps, 0);
 		}
@@ -798,7 +798,7 @@ R_API int r_core_visual_prompt(RCore *core) {
 		r_cons_echo (NULL);
 		r_cons_flush ();
 		ret = true;
-		if (r_config_get_i (core->config, "cfg.debug")) {
+		if (r_config_get_b (core->config, "cfg.debug")) {
 			r_core_cmd (core, ".dr*", 0);
 		}
 	} else {
@@ -811,7 +811,7 @@ R_API int r_core_visual_prompt(RCore *core) {
 }
 
 static void visual_single_step_in(RCore *core) {
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		if (core->print->cur_enabled) {
 			// dcu 0xaddr
 			r_core_cmdf (core, "dcu 0x%08"PFMT64x, core->offset + core->print->cur);
@@ -829,7 +829,7 @@ static void visual_single_step_in(RCore *core) {
 static void __core_visual_step_over(RCore *core) {
 	bool io_cache = r_config_get_i (core->config, "io.cache");
 	r_config_set_i (core->config, "io.cache", false);
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		if (core->print->cur_enabled) {
 			r_core_cmd (core, "dcr", 0);
 			core->print->cur_enabled = 0;
@@ -849,7 +849,7 @@ static void visual_breakpoint(RCore *core) {
 }
 
 static void visual_continue(RCore *core) {
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		r_core_cmd (core, "dc", 0);
 	} else {
 		r_core_cmd (core, "aec;.ar*", 0);
@@ -2309,7 +2309,7 @@ static bool canWrite(RCore *core, ut64 addr) {
 	if (r_config_get_i (core->config, "io.cache")) {
 		return true;
 	}
-	RIOMap *map = r_io_map_get (core->io, addr);
+	RIOMap *map = r_io_map_get_at (core->io, addr);
 	return (map && (map->perm & R_PERM_W));
 }
 
@@ -3697,7 +3697,7 @@ R_API void r_core_visual_title(RCore *core, int color) {
 	if (r_config_get_i (core->config, "scr.scrollbar") == 2) {
 		r_core_cmd (core, "fz:", 0);
 	}
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		ut64 curpc = r_debug_reg_get (core->dbg, "PC");
 		if (curpc && curpc != UT64_MAX && curpc != oldpc) {
 			// check dbg.follow here
@@ -3712,7 +3712,7 @@ R_API void r_core_visual_title(RCore *core, int color) {
 			oldpc = curpc;
 		}
 	}
-	RIOMap *map = r_io_map_get (core->io, core->offset);
+	RIOMap *map = r_io_map_get_at (core->io, core->offset);
 	RIODesc *desc = map ? r_io_desc_get (core->io, map->fd) : core->io->desc;
 	filename = desc? desc->name: "";
 
@@ -3777,7 +3777,7 @@ R_API void r_core_visual_title(RCore *core, int color) {
 		ut64 sz = r_io_size (core->io);
 		ut64 pa = core->offset;
 		{
-			RIOMap *map = r_io_map_get (core->io, core->offset);
+			RIOMap *map = r_io_map_get_at (core->io, core->offset);
 			if (map) {
 				pa = map->delta;
 			}
@@ -3917,7 +3917,7 @@ R_API void r_core_print_scrollbar(RCore *core) {
 	}
 	ut64 from = 0;
 	ut64 to = UT64_MAX;
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		from = r_num_math (core->num, "$D");
 		to = r_num_math (core->num, "$D+$DD");
 	} else if (r_config_get_i (core->config, "io.va")) {
@@ -3974,7 +3974,7 @@ R_API void r_core_print_scrollbar_bottom(RCore *core) {
 	}
 	ut64 from = 0;
 	ut64 to = UT64_MAX;
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		from = r_num_math (core->num, "$D");
 		to = r_num_math (core->num, "$D+$DD");
 	} else if (r_config_get_i (core->config, "io.va")) {
@@ -4313,7 +4313,7 @@ dodo:
 
 			if (cmdvhex && *cmdvhex) {
 				snprintf (debugstr, sizeof (debugstr),
-					"?t0;f tmp;ssr %s;%s;?t1;%s;?t1;"
+					"?t0;f tmp;ssr %s;%s;?t1;%s;drcq;?t1;"
 					"ss tmp;f-tmp;pd $r", reg, cmdvhex,
 					ref? "drr": "dr=");
 				debugstr[sizeof (debugstr) - 1] = 0;
@@ -4323,7 +4323,7 @@ dodo:
 				const int absdelta = R_ABS (delta);
 				snprintf (debugstr, sizeof (debugstr),
 					"diq;?t0;f tmp;ssr %s;%s %d@$$%c%d;"
-					"?t1;%s;"
+					"?t1;%s;drcq;"
 					"?t1;ss tmp;f-tmp;afal;pd $r",
 					reg, pxa? "pxa": pxw, size, sign, absdelta,
 					ref? "drr": "dr=");
@@ -4341,7 +4341,7 @@ dodo:
 		if (color) {
 			flags |= R_PRINT_FLAGS_COLOR;
 		}
-		debug = r_config_get_i (core->config, "cfg.debug");
+		debug = r_config_get_b (core->config, "cfg.debug");
 		flags |= R_PRINT_FLAGS_ADDRMOD | R_PRINT_FLAGS_HEADER;
 		r_print_set_flags (core->print, flags);
 		scrseek = r_num_math (core->num,

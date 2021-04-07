@@ -59,6 +59,7 @@ extern "C" {
 #define R_CONS_GREP_WORDS 10
 #define R_CONS_GREP_WORD_SIZE 64
 #define R_CONS_GREP_TOKENS 64
+#define R_CONS_GREP_COUNT 10
 
 R_LIB_VERSION_HEADER(r_cons);
 
@@ -698,6 +699,7 @@ typedef struct r_cons_canvas_line_style_t {
 	int color;
 	int symbol;
 	int dot_style;
+	const char *ansicolor;
 } RCanvasLineStyle;
 
 // UTF-8 symbols indexes
@@ -949,6 +951,23 @@ R_API void r_cons_enable_highlight(const bool enable);
 R_API void r_cons_bind(RConsBind *bind);
 R_API const char* r_cons_get_rune(const ut8 ch);
 #endif
+
+/* pixel.c */
+typedef struct {
+	int w;
+	int h;
+	ut8 *buf;
+	size_t buf_size;
+} RConsPixel;
+
+R_API RConsPixel *r_cons_pixel_new(int w, int h);
+R_API void r_cons_pixel_free(RConsPixel *p);
+R_API void r_cons_pixel_flush(RConsPixel *p, int sx, int sy);
+R_API char *r_cons_pixel_drain(RConsPixel *p);
+R_API void r_cons_pixel_set(RConsPixel *p, int x, int y, int v);
+R_API void r_cons_pixel_sets(RConsPixel *p, int x, int y, const char *s);
+R_API void r_cons_pixel_fill(RConsPixel *p, int _x, int _y, int w, int h, int v);
+R_API char *r_cons_pixel_tostring(RConsPixel *p);
 
 /* r_line */
 #define R_LINE_BUFSIZE 4096

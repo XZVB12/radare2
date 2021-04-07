@@ -18,6 +18,7 @@
 #include <set.h>
 #include <r_flag.h>
 #include <r_bin.h>
+#include <r_codemeta.h>
 
 #define esilprintf(op, fmt, ...) r_strbuf_setf (&op->esil, fmt, ##__VA_ARGS__)
 
@@ -1112,21 +1113,21 @@ typedef struct r_anal_esil_trace_t {
 	Sdb *db;
 } RAnalEsilTrace;
 
-typedef int (*RAnalEsilHookRegWriteCB)(ESIL *esil, const char *name, ut64 *val);
+typedef bool (*RAnalEsilHookRegWriteCB)(ESIL *esil, const char *name, ut64 *val);
 
 typedef struct r_anal_esil_callbacks_t {
 	void *user;
 	/* callbacks */
-	int (*hook_flag_read)(ESIL *esil, const char *flag, ut64 *num);
-	int (*hook_command)(ESIL *esil, const char *op);
-	int (*hook_mem_read)(ESIL *esil, ut64 addr, ut8 *buf, int len);
-	int (*mem_read)(ESIL *esil, ut64 addr, ut8 *buf, int len);
-	int (*hook_mem_write)(ESIL *esil, ut64 addr, const ut8 *buf, int len);
-	int (*mem_write)(ESIL *esil, ut64 addr, const ut8 *buf, int len);
-	int (*hook_reg_read)(ESIL *esil, const char *name, ut64 *res, int *size);
-	int (*reg_read)(ESIL *esil, const char *name, ut64 *res, int *size);
+	bool (*hook_flag_read)(ESIL *esil, const char *flag, ut64 *num);
+	bool (*hook_command)(ESIL *esil, const char *op);
+	bool (*hook_mem_read)(ESIL *esil, ut64 addr, ut8 *buf, int len);
+	bool (*mem_read)(ESIL *esil, ut64 addr, ut8 *buf, int len);
+	bool (*hook_mem_write)(ESIL *esil, ut64 addr, const ut8 *buf, int len);
+	bool (*mem_write)(ESIL *esil, ut64 addr, const ut8 *buf, int len);
+	bool (*hook_reg_read)(ESIL *esil, const char *name, ut64 *res, int *size);
+	bool (*reg_read)(ESIL *esil, const char *name, ut64 *res, int *size);
 	RAnalEsilHookRegWriteCB hook_reg_write;
-	int (*reg_write)(ESIL *esil, const char *name, ut64 val);
+	bool (*reg_write)(ESIL *esil, const char *name, ut64 val);
 } RAnalEsilCallbacks;
 
 typedef struct r_anal_esil_t {
@@ -1467,7 +1468,7 @@ R_API bool r_anal_block_was_modified(RAnalBlock *block);
 /* function.c */
 
 R_API RAnalFunction *r_anal_function_new(RAnal *anal);
-R_API void r_anal_function_free(void *fcn);
+R_API void r_anal_function_free(RAnalFunction *fcn);
 
 // Add a function created with r_anal_function_new() to anal
 R_API bool r_anal_add_function(RAnal *anal, RAnalFunction *fcn);
@@ -1574,10 +1575,10 @@ R_API void r_anal_esil_free(RAnalEsil *esil);
 R_API bool r_anal_esil_runword(RAnalEsil *esil, const char *word);
 R_API bool r_anal_esil_parse(RAnalEsil *esil, const char *str);
 R_API bool r_anal_esil_dumpstack(RAnalEsil *esil);
-R_API int r_anal_esil_mem_read(RAnalEsil *esil, ut64 addr, ut8 *buf, int len);
-R_API int r_anal_esil_mem_write(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len);
-R_API int r_anal_esil_reg_read(RAnalEsil *esil, const char *regname, ut64 *num, int *size);
-R_API int r_anal_esil_reg_write(RAnalEsil *esil, const char *dst, ut64 num);
+R_API bool r_anal_esil_mem_read(RAnalEsil *esil, ut64 addr, ut8 *buf, int len);
+R_API bool r_anal_esil_mem_write(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len);
+R_API bool r_anal_esil_reg_read(RAnalEsil *esil, const char *regname, ut64 *num, int *size);
+R_API bool r_anal_esil_reg_write(RAnalEsil *esil, const char *dst, ut64 num);
 R_API bool r_anal_esil_pushnum(RAnalEsil *esil, ut64 num);
 R_API bool r_anal_esil_push(RAnalEsil *esil, const char *str);
 R_API char *r_anal_esil_pop(RAnalEsil *esil);
@@ -1592,7 +1593,11 @@ R_API int r_anal_esil_condition(RAnalEsil *esil, const char *str);
 // esil_handler.c
 R_API void r_anal_esil_handlers_init(RAnalEsil *esil);
 R_API bool r_anal_esil_set_interrupt(RAnalEsil *esil, ut32 intr_num, RAnalEsilHandlerCB cb, void *user);
+R_API RAnalEsilHandlerCB r_anal_esil_get_interrupt(RAnalEsil *esil, ut32 intr_num);
+R_API void r_anal_esil_del_interrupt(RAnalEsil *esil, ut32 intr_num);
 R_API bool r_anal_esil_set_syscall(RAnalEsil *esil, ut32 sysc_num, RAnalEsilHandlerCB cb, void *user);
+R_API RAnalEsilHandlerCB r_anal_esil_get_syscall(RAnalEsil *esil, ut32 sysc_num);
+R_API void r_anal_esil_del_syscall(RAnalEsil *esil, ut32 sysc_num);
 R_API int r_anal_esil_fire_interrupt(RAnalEsil *esil, ut32 intr_num);
 R_API int r_anal_esil_do_syscall(RAnalEsil *esil, ut32 sysc_num);
 R_API void r_anal_esil_handlers_fini(RAnalEsil *esil);
@@ -1785,10 +1790,10 @@ R_API const char *r_anal_cond_tostring(int cc);
 R_API bool r_anal_jmptbl(RAnal *anal, RAnalFunction *fcn, RAnalBlock *block, ut64 jmpaddr, ut64 table, ut64 tablesize, ut64 default_addr);
 
 // TODO: should be renamed
-R_API bool try_get_delta_jmptbl_info(RAnal *anal, RAnalFunction *fcn, ut64 jmp_addr, ut64 lea_addr, ut64 *table_size, ut64 *default_case);
-R_API bool try_walkthrough_jmptbl(RAnal *anal, RAnalFunction *fcn, RAnalBlock *block, int depth, ut64 ip, ut64 jmptbl_loc, ut64 jmptbl_off, ut64 sz, ut64 jmptbl_size, ut64 default_case, bool ret0);
-R_API bool try_walkthrough_casetbl(RAnal *anal, RAnalFunction *fcn, RAnalBlock *block, int depth, ut64 ip, ut64 jmptbl_loc, ut64 casetbl_loc, ut64 jmptbl_off, ut64 sz, ut64 jmptbl_size, ut64 default_case, bool ret0);
-R_API bool try_get_jmptbl_info(RAnal *anal, RAnalFunction *fcn, ut64 addr, RAnalBlock *my_bb, ut64 *table_size, ut64 *default_case);
+R_API bool try_get_delta_jmptbl_info(RAnal *a, RAnalFunction *fcn, ut64 jmp_addr, ut64 lea_addr, ut64 *table_size, ut64 *default_case, st64 *start_casenum_shift);
+R_API bool try_walkthrough_jmptbl(RAnal *analysis, RAnalFunction *fcn, RAnalBlock *block, int depth, ut64 ip, st64 start_casenum_shift, ut64 jmptbl_loc, ut64 jmptbl_off, ut64 sz, ut64 jmptbl_size, ut64 default_case, bool ret0);
+R_API bool try_walkthrough_casetbl(RAnal *analysis, RAnalFunction *fcn, RAnalBlock *block, int depth, ut64 ip, st64 start_casenum_shift, ut64 jmptbl_loc, ut64 casetbl_loc, ut64 jmptbl_off, ut64 sz, ut64 jmptbl_size, ut64 default_case, bool ret0);
+R_API bool try_get_jmptbl_info(RAnal *analysis, RAnalFunction *fcn, ut64 addr, RAnalBlock *my_bb, ut64 *table_size, ut64 *default_case, st64 *start_casenum_shift);
 R_API int walkthrough_arm_jmptbl_style(RAnal *anal, RAnalFunction *fcn, RAnalBlock *block, int depth, ut64 ip, ut64 jmptbl_loc, ut64 sz, ut64 jmptbl_size, ut64 default_case, int ret0);
 
 /* reflines.c */

@@ -274,6 +274,19 @@ R_API char *r_file_abspath(const char *file) {
 	return NULL;
 }
 
+R_API char *r_file_binsh(void) {
+	char *bin_sh = r_sys_getenv ("SHELL");
+	if (R_STR_ISEMPTY (bin_sh)) {
+		free (bin_sh);
+		bin_sh = r_file_path("sh");
+		if (R_STR_ISEMPTY (bin_sh)) {
+			free (bin_sh);
+			bin_sh = strdup ("/bin/sh");
+		}
+	}
+	return bin_sh;
+}
+
 R_API char *r_file_path(const char *bin) {
 	r_return_val_if_fail (bin, NULL);
 	char *file = NULL;
@@ -1260,6 +1273,33 @@ R_API bool r_file_copy(const char *src, const char *dst) {
 	free (dst2);
 	return rc == 0;
 #endif
+}
+
+R_API bool r_file_dir_recursive(RList *dst, const char *dir) {
+	bool ret = false;
+	char *cwd = r_sys_getdir ();
+	if (!cwd) {
+		return false;
+	}
+	if (r_sys_chdir (dir) == false) {
+		free (cwd);
+		return ret;
+	}
+	RList *files = r_sys_dir (".");
+	RListIter *iter;
+	char *name;
+	r_return_val_if_fail (files, false);
+	r_list_foreach (files, iter, name) {
+		if (strcmp (name, ".") == 0 || strcmp (name, "..") == 0) {
+			continue;
+		}
+		r_list_append (dst, r_file_abspath (name));
+		if (r_file_is_directory (name)) {
+			ret = r_file_dir_recursive (dst, name);
+		}
+	}
+	r_sys_chdir (cwd);
+	return ret;
 }
 
 static void recursive_search_glob(const char *path, const char *glob, RList* list, int depth) {

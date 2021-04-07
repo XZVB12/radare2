@@ -61,6 +61,7 @@ int proc_pidpath(int pid, void * buffer, ut32 buffersize);
 # include <sys/wait.h>
 # include <sys/stat.h>
 # include <errno.h>
+# include <pwd.h>
 # include <signal.h>
 extern char **environ;
 
@@ -514,8 +515,9 @@ err_r_sys_get_env:
 }
 
 R_API bool r_sys_getenv_asbool(const char *key) {
+	r_return_val_if_fail (key, false);
 	char *env = r_sys_getenv (key);
-	const bool res = (env && *env == '1');
+	const bool res = env && r_str_is_true (env);
 	free (env);
 	return res;
 }
@@ -1232,14 +1234,30 @@ R_API char *r_sys_whoami(void) {
 	char buf[32];
 #if __WINDOWS__
 	DWORD buf_sz = sizeof (buf);
-	if (!GetUserName(buf, (LPDWORD)&buf_sz) ) {
+	if (!GetUserName (buf, (LPDWORD)&buf_sz) ) {
 		return strdup ("?");
 	}
 #else
+	struct passwd *pw = getpwuid (getuid ());
+	if (pw) {
+		return strdup (pw->pw_name);
+	}
 	int uid = getuid ();
 	snprintf (buf, sizeof (buf), "uid%d", uid);
 #endif
 	return strdup (buf);
+}
+
+R_API int r_sys_uid(void) {
+#if __WINDOWS__
+	char buf[32];
+	DWORD buf_sz = sizeof (buf);
+	if (!GetUserName (buf, (LPDWORD)&buf_sz) ) {
+		return strdup ("?");
+	}
+#else
+	return getuid ();
+#endif
 }
 
 R_API int r_sys_getpid(void) {

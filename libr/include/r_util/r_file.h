@@ -24,6 +24,7 @@ R_API void r_file_mmap_free(RMmap *m);
 R_API bool r_file_chmod(const char *file, const char *mod, int recursive);
 R_API char *r_file_temp(const char *prefix);
 R_API char *r_file_path(const char *bin);
+R_API char *r_file_binsh(void);
 R_API const char *r_file_basename(const char *path);
 R_API char *r_file_dirname(const char *path);
 R_API char *r_file_abspath_rel(const char *cwd, const char *file);
@@ -53,7 +54,7 @@ R_API bool r_file_copy(const char *src, const char *dst);
 R_API bool r_file_move(const char *src, const char *dst);
 R_API RList* r_file_globsearch (const char *globbed_path, int maxdepth);
 R_API RMmap *r_file_mmap_arch (RMmap *map, const char *filename, int fd);
-
+R_API bool r_file_dir_recursive(RList *dst, const char *dir);
 #ifdef __cplusplus
 }
 #endif

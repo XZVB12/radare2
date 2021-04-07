@@ -13,6 +13,7 @@
 #include "cmd_helps.h"
 #if __UNIX__
 #include <sys/utsname.h>
+#include <pwd.h>
 #endif
 
 #include <tree_sitter/api.h>
@@ -274,6 +275,7 @@ static const char *help_msg_u[] = {
 	"uw", "", "alias for wc (requires: e io.cache=true)",
 	"us", "", "alias for s- (seek history)",
 	"uc", "[?]", "undo core commands (uc?, ucl, uc*, ..)",
+	"uid", "", "display numeric user id",
 	"uniq", "", "filter rows to avoid duplicates",
 	"uname", "", "uname - show system information",
 	NULL
@@ -368,6 +370,14 @@ static bool duplicate_flag(RFlagItem *flag, void *u) {
 		r_list_append (user->ret, cloned_item);
 	}
 	return true;
+}
+
+static bool foreach_newline(RCore *core) {
+	bool nl = r_config_get_i (core->config, "scr.loopnl");
+	if (nl) {
+		r_cons_newline ();
+	}
+	return r_cons_is_breaked ();
 }
 
 static void recursive_help_go(RCore *core, int detail, RCmdDescriptor *desc) {
@@ -543,9 +553,6 @@ static int cmd_head (void *data, const char *_input) { // "head"
 static int cmd_undo(void *data, const char *input) {
 	RCore *core = (RCore *)data;
 	switch (input[0]) {
-	case '?': // "u?"
-		r_core_cmd_help (data, help_msg_u);
-		return 1;
 	case 'c': // "uc"
 		switch (input[1]) {
 		case ' ': {
@@ -584,6 +591,9 @@ static int cmd_undo(void *data, const char *input) {
 			break;
 		}
 		return 1;
+	case 'i': // "ui"
+		r_cons_printf ("%d\n", r_sys_uid ());
+		return 1;
 	case 's': // "us"
 		r_core_cmdf (data, "s-%s", input + 1);
 		return 1;
@@ -596,6 +606,10 @@ static int cmd_undo(void *data, const char *input) {
 		} else if (input[1] == 'i' && input[2] == 'q') {
 			(void)cmd_uniq (core, input);
 		}
+		return 1;
+	default:
+	case '?': // "u?"
+		r_core_cmd_help (data, help_msg_u);
 		return 1;
 	}
 #if __UNIX__
@@ -1083,7 +1097,7 @@ R_API bool r_core_run_script(RCore *core, const char *file) {
 
 	r_list_foreach (core->scriptstack, iter, name) {
 		if (!strcmp (file, name)) {
-			eprintf ("WARNING: ignored nested source: %s\n", file);
+			eprintf ("Warning: ignored nested source: %s\n", file);
 			return false;
 		}
 	}
@@ -2471,6 +2485,7 @@ static struct autocomplete_flag_map_t {
 	{ "$flsp", "shows known flag-spaces hints", R_CORE_AUTOCMPLT_FLSP },
 	{ "$seek", "shows the seek hints", R_CORE_AUTOCMPLT_SEEK },
 	{ "$fcn", "shows the functions hints", R_CORE_AUTOCMPLT_FCN },
+	{ "$vars", "autocomplete function varnames", R_CORE_AUTOCMPLT_VARS },
 	{ "$zign", "shows known zignatures hints", R_CORE_AUTOCMPLT_ZIGN },
 	{ "$eval", "shows known evals hints", R_CORE_AUTOCMPLT_EVAL },
 	{ "$prjt", "shows known projects hints", R_CORE_AUTOCMPLT_PRJT },
@@ -2900,7 +2915,6 @@ R_API int r_core_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd) {
 			child = r_sys_fork ();
 			if (child == -1) {
 				eprintf ("Cannot fork\n");
-				close (stdout_fd);
 			} else if (child) {
 				dup2 (fds[1], 1);
 				close (fds[1]);
@@ -2910,17 +2924,16 @@ R_API int r_core_cmd_pipe(RCore *core, char *radare_cmd, char *shell_cmd) {
 				close (1);
 				wait (&ret);
 				dup2 (stdout_fd, 1);
-				close (stdout_fd);
 			} else {
 				close (fds[1]);
 				dup2 (fds[0], 0);
 				//dup2 (1, 2); // stderr goes to stdout
 				r_sandbox_system (shell_cmd, 0);
-				close (stdout_fd);
 			}
 		} else {
 			eprintf ("r_core_cmd_pipe: Could not pipe\n");
 		}
+		close (stdout_fd);
 	}
 #elif __WINDOWS__
 	r_w32_cmd_pipe (core, radare_cmd, shell_cmd);
@@ -4275,7 +4288,7 @@ static void foreach_pairs(RCore *core, const char *cmd, const char *each) {
 		}
 		if (arg && *arg) {
 			ut64 n = r_num_get (NULL, arg);
-			if (pair%2) {
+			if (pair % 2) {
 				r_core_block_size (core, n);
 				r_core_cmd0 (core, cmd);
 			} else {
@@ -4328,6 +4341,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 			if (!glob || (meta->str && r_str_glob (meta->str, glob))) {
 				r_core_seek (core, r_interval_tree_iter_get (&it)->start, true);
 				r_core_cmd0 (core, cmd);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 		}
 		free (glob);
@@ -4337,7 +4353,7 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 		{
 			int fd = r_io_fd_get_current (core->io);
 			// only iterate maps of current fd
-			RList *maps = r_io_map_get_for_fd (core->io, fd);
+			RList *maps = r_io_map_get_by_fd (core->io, fd);
 			RIOMap *map;
 			if (maps) {
 				RListIter *iter;
@@ -4345,18 +4361,24 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_seek (core, r_io_map_begin (map), true);
 					r_core_block_size (core, r_io_map_size (map));
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_list_free (maps);
 			}
 		}
 		break;
-	case 'M':
+	case 'M': // @@@M
 		if (dbg && dbg->h && dbg->maps) {
 			RDebugMap *map;
 			r_list_foreach (dbg->maps, iter, map) {
 				r_core_seek (core, map->addr, true);
 				//r_core_block_size (core, map->size);
 				r_core_cmd0 (core, cmd);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 		}
 		break;
@@ -4373,6 +4395,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 				r_core_cmdf (core, "dp %d", p->pid);
 				r_cons_printf ("PID %d\n", p->pid);
 				r_core_cmd0 (core, cmd);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 			r_core_cmdf (core, "dp %d", origpid);
 			r_list_free (list);
@@ -4404,6 +4429,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_seek (core, value, true);
 					r_cons_printf ("%s: ", item_name);
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_list_free (list);
 			}
@@ -4430,6 +4458,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 				if (addr && addr != UT64_MAX) {
 					r_core_seek (core, addr, true);
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 			}
 			r_core_seek (core, offorig, true);
@@ -4448,6 +4479,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_seek (core, sec->vaddr, true);
 					r_core_block_size (core, sec->vsize);
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_core_block_size (core, bszorig);
 				r_core_seek (core, offorig, true);
@@ -4468,6 +4502,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 				//}
 				r_core_seek_size (core, addr, size);
 				r_core_cmd (core, cmd, 0);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 			r_core_block_size (core, cbsz);
 		}
@@ -4489,6 +4526,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_block_size (core, s->size);
 					r_core_seek (core, s->vaddr, true);
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_core_block_size (core, obs);
 				r_core_seek (core, offorig, true);
@@ -4513,6 +4553,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 				r_core_block_size (core, sym->size);
 				r_core_seek (core, sym->vaddr, true);
 				r_core_cmd0 (core, cmd);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 			r_cons_break_pop ();
 			r_list_free (lost);
@@ -4534,6 +4577,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 				r_core_block_size (core, f->size);
 				r_core_seek (core, f->offset, true);
 				r_core_cmd0 (core, cmd);
+				if (foreach_newline (core)) {
+					break;
+				}
 			}
 			r_core_seek (core, off, false);
 			r_core_block_size (core, obs);
@@ -4555,6 +4601,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_seek (core, fcn->addr, true);
 					r_core_block_size (core, r_anal_function_linear_size (fcn));
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 			}
 			r_cons_break_pop ();
@@ -4574,6 +4623,9 @@ R_API int r_core_cmd_foreach3(RCore *core, const char *cmd, char *each) { // "@@
 					r_core_seek (core, bb->addr, true);
 					r_core_block_size (core, bb->size);
 					r_core_cmd0 (core, cmd);
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_core_block_size (core, obs);
 				r_core_seek (core, offorig, true);
@@ -4632,6 +4684,7 @@ static void foreachOffset(RCore *core, const char *_cmd, const char *each) {
 			}
 			r_core_seek (core, addr, true);
 			r_core_cmd (core, cmd, 0);
+			foreach_newline (core);
 			r_cons_flush ();
 		}
 		each = nextLine;
@@ -4681,7 +4734,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					r_core_block_size (core, bb->size);
 					r_core_seek (core, bb->addr, true);
 					r_core_cmd (core, cmd, 0);
-					if (r_cons_is_breaked ()) {
+					if (foreach_newline (core)) {
 						break;
 					}
 				}
@@ -4705,7 +4758,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 				for (cur = from; cur <= to; cur += step) {
 					(void) r_core_seek (core, cur, true);
 					r_core_cmd (core, cmd, 0);
-					if (r_cons_is_breaked ()) {
+					if (foreach_newline (core)) {
 						break;
 					}
 				}
@@ -4728,7 +4781,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 						ut64 addr = bb->addr + bb->op_pos[i];
 						r_core_seek (core, addr, true);
 						r_core_cmd (core, cmd, 0);
-						if (r_cons_is_breaked ()) {
+						if (foreach_newline (core)) {
 							break;
 						}
 					}
@@ -4746,7 +4799,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					if (each[2] && strstr (fcn->name, each + 2)) {
 						r_core_seek (core, fcn->addr, true);
 						r_core_cmd (core, cmd, 0);
-						if (r_cons_is_breaked ()) {
+						if (foreach_newline (core)) {
 							break;
 						}
 					}
@@ -4770,7 +4823,7 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					r_cons_pop ();
 					r_cons_strcat (buf);
 					free (buf);
-					if (r_cons_is_breaked ()) {
+					if (foreach_newline (core)) {
 						break;
 					}
 				}
@@ -4789,7 +4842,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					r_cons_printf ("# PID %d\n", p->pid);
 					r_debug_select (core->dbg, p->pid, p->pid);
 					r_core_cmd (core, cmd, 0);
-					r_cons_newline ();
+					if (foreach_newline (core)) {
+						break;
+					}
 				}
 				r_list_free (list);
 			}
@@ -4831,7 +4886,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					break;
 				}
 				r_core_cmd (core, cmd, 0);
-				r_cons_newline ();
+				if (foreach_newline (core)) {
+					break;
+				}
 				i++;
 			}
 			r_core_seek (core, oseek, false);
@@ -4865,6 +4922,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 				each = str + 1;
 				r_core_seek (core, addr, true);
 				r_core_cmd (core, cmd, 0);
+				if (foreach_newline (core)) {
+					break;
+				}
 				r_cons_flush ();
 			} while (str != NULL);
 			free (out);
@@ -4889,6 +4949,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 				eprintf ("0x%08"PFMT64x" (%s)\n", addr, cmd2);
 				r_core_seek (core, addr, true);
 				r_core_cmd (core, cmd2, 0);
+				if (foreach_newline (core)) {
+					break;
+				}
 				i++;
 			}
 		} else {
@@ -4907,6 +4970,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					sprintf (cmd2, "%s @ 0x%08"PFMT64x"", cmd, addr);
 					r_core_seek (core, addr, true); // XXX
 					r_core_cmd (core, cmd2, 0);
+					if (foreach_newline (core)) {
+						break;
+					}
 					core->rcmd->macro.counter++;
 				}
 				fclose (fd);
@@ -4969,6 +5035,9 @@ R_API int r_core_cmd_foreach(RCore *core, const char *cmd, char *each) {
 					r_cons_pop ();
 					r_cons_strcat (buf);
 					free (buf);
+					if (foreach_newline (core)) {
+						break;
+					}
 					r_core_task_yield (&core->tasks);
 				}
 
@@ -6729,7 +6798,7 @@ DEFINE_HANDLE_TS_FCN_AND_SYMBOL(foreach_iomap_command) {
 	TSNode command = ts_node_named_child (node, 0);
 	int fd = r_io_fd_get_current (core->io);
 	// only iterate maps of current fd
-	RList *maps = r_io_map_get_for_fd (core->io, fd);
+	RList *maps = r_io_map_get_by_fd (core->io, fd);
 	RIOMap *map;
 	RCmdStatus res = R_CMD_STATUS_OK;
 	if (maps) {

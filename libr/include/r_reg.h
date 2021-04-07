@@ -142,6 +142,7 @@ typedef struct r_reg_flags_t {
 R_API void r_reg_free(RReg *reg);
 R_API void r_reg_free_internal(RReg *reg, bool init);
 R_API RReg *r_reg_new(void);
+R_API RReg *r_reg_init(RReg *reg);
 R_API bool r_reg_set_name(RReg *reg, int role, const char *name);
 R_API bool r_reg_set_profile_string(RReg *reg, const char *profile);
 R_API char* r_reg_profile_to_cc(RReg *reg);
@@ -176,7 +177,7 @@ R_API int r_reg_get_name_idx(const char *type);
 R_API RRegItem *r_reg_cond_get(RReg *reg, const char *name);
 R_API void r_reg_cond_apply(RReg *r, RRegFlags *f);
 R_API bool r_reg_cond_set(RReg *reg, const char *name, bool val);
-R_API int r_reg_cond_get_value(RReg *r, const char *name);
+R_API bool r_reg_cond_get_value(RReg *r, const char *name);
 R_API bool r_reg_cond_bits_set(RReg *r, int type, RRegFlags *f, bool v);
 R_API int r_reg_cond_bits(RReg *r, int type, RRegFlags *f);
 R_API RRegFlags *r_reg_cond_retrieve(RReg *r, RRegFlags *);

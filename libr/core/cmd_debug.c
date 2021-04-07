@@ -233,6 +233,7 @@ static const char *help_msg_dm[] = {
 	"dmi", " [addr|libname] [symname]", "List symbols of target lib",
 	"dmi*", " [addr|libname] [symname]", "List symbols of target lib in radare commands",
 	"dmi.", "", "List closest symbol to the current address",
+	"dmis", " [libname]", "Same as .dmi* - import all symbols from given lib as flags",
 	"dmiv", "", "Show address of given symbol for given lib",
 	"dmj", "", "List memmaps in JSON format",
 	"dml", " <file>", "Load contents of file into the current map region",
@@ -599,6 +600,9 @@ static int showreg(RCore *core, const char *str) {
 	int role = r_reg_get_name_idx (str);
 	if (role != -1) {
 		rname = r_reg_get_name (core->dbg->reg, role);
+	}
+	if (!rname) {
+		return 0;
 	}
 	r = r_reg_get (core->dbg->reg, rname , -1);
 	if (r) {
@@ -1442,6 +1446,20 @@ static int r_debug_heap(RCore *core, const char *input) {
 }
 
 static bool get_bin_info(RCore *core, const char *file, ut64 baseaddr, PJ *pj, int mode, bool symbols_only, RCoreBinFilter *filter) {
+#if __APPLE__
+	switch (mode) {
+	case R_MODE_SET:
+		r_core_cmdf (core, ".dmi* 0x%08"PFMT64x" %s", baseaddr, file);
+		break;
+	case R_MODE_RADARE:
+		r_core_cmdf (core, "!!rabin2 -rsEB 0x%08"PFMT64x" %s", baseaddr, file);
+		break;
+	default:
+		r_core_cmdf (core, "!!rabin2 -E -B 0x%08"PFMT64x" %s", baseaddr, file);
+		break;
+	}
+	return true;
+#else
 	int fd;
 	if ((fd = r_io_fd_open (core->io, file, R_PERM_R, 0)) == -1) {
 		return false;
@@ -1467,6 +1485,7 @@ static bool get_bin_info(RCore *core, const char *file, ut64 baseaddr, PJ *pj, i
 	r_bin_file_set_cur_binfile (core->bin, obf);
 	r_io_fd_close (core->io, fd);
 	return true;
+#endif
 }
 
 static int cmd_debug_map(RCore *core, const char *input) {
@@ -1571,6 +1590,9 @@ static int cmd_debug_map(RCore *core, const char *input) {
 		case '\0': // "dmi" alias of "dmm"
 			r_core_cmd (core, "dmm", 0);
 			break;
+		case 's': // "dmis"
+			r_core_cmdf (core, ".dmi* %s", input + 2);
+			break;
 		case ' ': // "dmi "
 		case '*': // "dmi*"
 		case 'v': // "dmiv"
@@ -1610,7 +1632,7 @@ static int cmd_debug_map(RCore *core, const char *input) {
 					mode = R_MODE_PRINT;
 					break;
 				}
-				ptr = strdup (r_str_trim_head_ro (input + 2));
+				ptr = r_str_trim_dup (input + 2);
 				if (!ptr || !*ptr) {
 					r_core_cmd (core, "dmm", 0);
 					free (ptr);
@@ -1676,7 +1698,18 @@ static int cmd_debug_map(RCore *core, const char *input) {
 			}
 			break;
 		case '.': // "dmi."
-			{
+			if (r_config_get_b (core->config, "cfg.debug")) {
+				ut64 addr = core->offset;
+				r_list_foreach (core->dbg->maps, iter, map) {
+					if (!map->shared) {
+						continue;
+					}
+					if (addr >= map->addr && addr < map->addr_end) {
+						r_cons_printf ("%s\n", map->name);
+				//		break;
+					}
+				}
+			} else {
 				map = get_closest_map (core, addr);
 				if (map) {
 					ut64 closest_addr = UT64_MAX;
@@ -2014,6 +2047,10 @@ static void show_drpi(RCore *core) {
 		const char *nmi = r_reg_get_type (i);
 		r_cons_printf ("regset %d (%s)\n", i, nmi);
 		RRegSet *rs = &core->anal->reg->regset[i];
+		if (!rs || !rs->arena) {
+			r_cons_printf ("* arena %s no\n", r_reg_get_type (i));
+			continue;
+		}
 		r_cons_printf ("* arena %s size %d\n", r_reg_get_type (i), rs->arena->size);
 		r_list_foreach (rs->regs, iter, ri) {
 			const char *tpe = r_reg_get_type (ri->type);
@@ -2099,7 +2136,9 @@ static void cmd_reg_profile(RCore *core, char from, const char *str) { // "arp" 
 			RRegSet *rs = r_reg_regset_get (core->dbg->reg, R_REG_TYPE_GPR);
 			if (rs) {
 				r_cons_printf ("%d\n", rs->arena->size);
-			} else eprintf ("Cannot find GPR register arena.\n");
+			} else {
+				eprintf ("Cannot find GPR register arena.\n");
+			}
 		}
 		break;
 	case 'j': // "drpj" "arpj"
@@ -2463,7 +2502,16 @@ static void cmd_debug_reg(RCore *core, const char *str) {
 		break;
 	case 'c': // "drc"
 		// todo: set flag values with drc zf=1
-		if (str[1] == '=') {
+		if (str[1] == 'q') { // "drcq"
+			RRegFlags *rf = r_reg_cond_retrieve (core->dbg->reg, NULL);
+			if (rf) {
+				r_cons_printf ("s:%d z:%d c:%d o:%d p:%d\n",
+						rf->s, rf->z, rf->c, rf->o, rf->p);
+				free (rf);
+			}
+			break;
+		}
+		if (str[1] == '=') { // "drc="
 			RRegFlags *rf = r_reg_cond_retrieve (core->dbg->reg, NULL);
 			if (rf) {
 				r_cons_printf ("s:%d z:%d c:%d o:%d p:%d\n",
@@ -2829,7 +2877,13 @@ static void cmd_debug_reg(RCore *core, const char *str) {
 				}
 				type = r_reg_type_by_name (str + 2);
 				r_debug_reg_sync (core->dbg, type, false);
-				r_debug_reg_list (core->dbg, type, size, NULL, rad, use_color);
+				PJ *pj = (tolower (rad) == 'j')? r_core_pj_new (core): NULL;
+				r_debug_reg_list (core->dbg, type, size, pj, rad, use_color);
+				if (pj) {
+					char *s = pj_drain (pj);
+					r_cons_printf ("%s\n", s);
+					free (s);
+				}
 			} else {
 				if (type != R_REG_TYPE_LAST) {
 					r_debug_reg_sync (core->dbg, type, false);
@@ -3598,17 +3652,21 @@ static void r_core_cmd_bp(RCore *core, const char *input) {
 		break;
 	case 'm': // "dbm"
 		if (input[2] && input[3]) {
-			char *string = strdup (input + 3);
-			char *module = NULL;
+			char *module = r_str_trim_dup (input + 3);
 			st64 delta = 0;
-
-			module = strtok (string, " ");
-			delta = (ut64)r_num_math (core->num, strtok (NULL, ""));
+			char *sdelta = (char *)r_str_lchr (module, ' ');
+			if (!sdelta) {
+				eprintf ("Usage: dbm [modulename] [delta]\n");
+				free (module);
+				break;
+			}
+			*sdelta++ = 0;
+			delta = (ut64)r_num_math (core->num, sdelta);
 			bpi = r_debug_bp_add (core->dbg, 0, hwbp, false, 0, module, delta);
 			if (!bpi) {
 				eprintf ("Cannot set breakpoint.\n");
 			}
-			free (string);
+			free (module);
 		}
 		break;
 	case 'j': r_bp_list (core->dbg->bp, 'j'); break;
@@ -4082,8 +4140,8 @@ static void r_core_debug_esil (RCore *core, const char *input) {
 	}
 }
 
-static void r_core_debug_kill (RCore *core, const char *input) {
-	if (!input || *input=='?') {
+static void r_core_debug_kill(RCore *core, const char *input) {
+	if (!input || *input == '?') {
 		if (input && input[1]) {
 			const char *signame, *arg = input + 1;
 			int signum = atoi (arg);
@@ -4211,7 +4269,7 @@ static bool is_x86_ret(RDebug *dbg, ut64 addr) {
 	/* Possibly incomplete with regard to instruction prefixes */
 }
 
-static bool cmd_dcu (RCore *core, const char *input) {
+static bool cmd_dcu(RCore *core, const char *input) {
 	const char *ptr = NULL;
 	ut64 from, to, pc;
 	bool dcu_range = false;
@@ -4222,10 +4280,10 @@ static bool cmd_dcu (RCore *core, const char *input) {
 	}
 	to = UT64_MAX;
 	if (input[2] == '.') {
-		ptr = strchr (input + 3, ' ');
+		ptr = (input[3])? strchr (input + 3, ' '): NULL;
 		if (ptr) { // TODO: put '\0' in *ptr to avoid
 			from = r_num_tail (core->num, core->offset, input + 2);
-			if (ptr[1]=='.') {
+			if (ptr[1] == '.') {
 				to = r_num_tail (core->num, core->offset, ptr+2);
 			} else {
 				to = r_num_math (core->num, ptr+1);
@@ -4235,7 +4293,7 @@ static bool cmd_dcu (RCore *core, const char *input) {
 			from = r_num_tail (core->num, core->offset, input + 2);
 		}
 	} else {
-		ptr = strchr (input + 3, ' ');
+		ptr = (input[2] && input[3])? strchr (input + 3, ' '): NULL;
 		if (ptr) { // TODO: put '\0' in *ptr to avoid
 			from = r_num_math (core->num, input + 3);
 			if (ptr[1]=='.') {
@@ -4457,7 +4515,7 @@ static int cmd_debug_continue (RCore *core, const char *input) {
 				r_debug_reg_sync (core->dbg, R_REG_TYPE_GPR, false);
 				pc = r_debug_reg_get (core->dbg, "PC");
 				eprintf (" %d %"PFMT64x"\r", n++, pc);
-				s = r_io_map_get (core->io, pc);
+				s = r_io_map_get_at (core->io, pc);
 				if (r_cons_is_breaked ()) {
 					break;
 				}

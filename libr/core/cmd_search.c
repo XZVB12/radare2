@@ -669,7 +669,8 @@ static bool maskMatches(int perm, int mask, bool only) {
 }
 
 // TODO(maskray) returns RList<RInterval>
-R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode, const char *prefix) {
+// XXX perm parameter is unused
+R_API RList *r_core_get_boundaries_prot(RCore *core, R_UNUSED int perm, const char *mode, const char *prefix) {
 	r_return_val_if_fail (core, NULL);
 
 	RList *list = r_list_newf (free); // XXX r_io_map_free);
@@ -692,14 +693,14 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 	if (perm == -1) {
 		perm = R_PERM_RWX;
 	}
-	if (!r_config_get_i (core->config, "cfg.debug") && !core->io->va) {
+	if (!r_config_get_b (core->config, "cfg.debug") && !core->io->va) {
 		append_bound (list, core->io, search_itv, 0, r_io_size (core->io), 7);
 	} else if (!strcmp (mode, "file")) {
 		append_bound (list, core->io, search_itv, 0, r_io_size (core->io), 7);
 	} else if (!strcmp (mode, "block")) {
 		append_bound (list, core->io, search_itv, core->offset, core->blocksize, 7);
 	} else if (!strcmp (mode, "io.map")) {
-		RIOMap *m = r_io_map_get (core->io, core->offset);
+		RIOMap *m = r_io_map_get_at (core->io, core->offset);
 		if (m) {
 			append_bound (list, core->io, search_itv, m->itv.addr, m->itv.size, m->perm);
 		}
@@ -716,7 +717,7 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 			ut64 from = r_itv_begin (part->itv);
 			ut64 to = r_itv_end (part->itv);
 			// XXX skyline's fake map perms are wrong
-			RIOMap *m = r_io_map_get (core->io, from);
+			RIOMap *m = r_io_map_get_at (core->io, from);
 			int rwx = m? m->perm: part->map->perm;
 #else
 		void **it;
@@ -927,12 +928,12 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 			}
 			append_bound (list, core->io, search_itv, from, size, 5);
 		} else {
-			eprintf ("WARNING: search.in = ( anal.bb | anal.fcn )"\
+			eprintf ("Warning: search.in = ( anal.bb | anal.fcn )"\
 				"requires to seek into a valid function\n");
 			append_bound (list, core->io, search_itv, core->offset, 1, 5);
 		}
 	} else if (!strncmp (mode, "dbg.", 4)) {
-		if (r_config_get_i (core->config, "cfg.debug")) {
+		if (r_config_get_b (core->config, "cfg.debug")) {
 			int mask = 0;
 			int add = 0;
 			bool heap = false;
@@ -1635,6 +1636,7 @@ static int r_core_search_rop(RCore *core, RInterval search_itv, int opt, const c
 			}
 		}
 		free (buf);
+		ht_uu_free (badstart);
 	}
 	if (r_cons_is_breaked ()) {
 		eprintf ("\n");
@@ -1669,7 +1671,7 @@ static bool esil_addrinfo(RAnalEsil *esil) {
 
 static void do_esil_search(RCore *core, struct search_parameters *param, const char *input) {
 	const int hit_combo_limit = r_config_get_i (core->config, "search.esilcombo");
-	const bool cfgDebug = r_config_get_i (core->config, "cfg.debug");
+	const bool cfgDebug = r_config_get_b (core->config, "cfg.debug");
 	RSearch *search = core->search;
 	RSearchKeyword kw = R_EMPTY;
 	if (input[0] != 'E') {
@@ -1962,6 +1964,7 @@ static void do_syscall_search(RCore *core, struct search_parameters *param) {
 					r_flag_set (core->flags, flag, at, ret);
 					free (flag);
 				}
+				r_syscall_item_free (item);
 				if (*param->cmd_hit) {
 					ut64 here = core->offset;
 					r_core_seek (core, at, true);
@@ -3025,7 +3028,7 @@ static int cmd_search(void *data, const char *input) {
 	RInterval search_itv = {search_from, search_to - search_from};
 	bool empty_search_itv = search_from == search_to && search_from != UT64_MAX;
 	if (empty_search_itv) {
-		eprintf ("WARNING from == to?\n");
+		eprintf ("Warning: from == to?\n");
 		ret = false;
 		goto beach;
 	}
@@ -3754,7 +3757,7 @@ reread:
 		}
 		break;
 	case 'E': // "/E"
-		if (core->bin && r_config_get_i (core->config, "cfg.debug")) {
+		if (core->bin && r_config_get_b (core->config, "cfg.debug")) {
 			r_debug_map_sync (core->dbg);
 		}
 		do_esil_search (core, &param, input);

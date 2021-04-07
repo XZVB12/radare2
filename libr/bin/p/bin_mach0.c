@@ -440,6 +440,7 @@ static RList *relocs(RBinFile *bf) {
 		if (reloc->name[0]) {
 			RBinImport *imp;
 			if (!(imp = import_from_name (bf->rbin, (char*) reloc->name, bin->imports_by_name))) {
+				free (ptr);
 				break;
 			}
 			ptr->import = imp;
@@ -611,7 +612,7 @@ static RList* patch_relocs(RBin *b) {
 	}
 
 	if (!io->cached) {
-		eprintf ("Warning: run r2 with -e io.cache=true to fix relocations in disassembly\n");
+		eprintf ("Warning: run r2 with -e bin.cache=true to fix relocations in disassembly\n");
 		goto beach;
 	}
 
@@ -638,7 +639,7 @@ static RList* patch_relocs(RBin *b) {
 		goto beach;
 	}
 
-	RIOMap *gotr2map = b->iob.map_get (io, n_vaddr);
+	RIOMap *gotr2map = b->iob.map_get_at (io, n_vaddr);
 	if (!gotr2map) {
 		goto beach;
 	}

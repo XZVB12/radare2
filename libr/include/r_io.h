@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2017-2020 - condret, pancake, alvaro */
+/* radare2 - LGPL - Copyright 2017-2021 - condret, pancake */
 
 #ifndef R2_IO_H
 #define R2_IO_H
@@ -83,26 +83,26 @@ typedef struct r_io_undo_t {
 } RIOUndo;
 
 typedef struct r_io_undo_w_t {
-	int set;
+	bool set;
 	ut64 off;
 	ut8 *o;   /* old data */
 	ut8 *n;   /* new data */
-	int len;  /* length */
+	size_t len;  /* length */
 } RIOUndoWrite;
 
 typedef struct r_io_t {
 	struct r_io_desc_t *desc; // XXX deprecate... we should use only the fd integer, not hold a weak pointer
 	ut64 off;
 	int bits;
-	int va;		//all of this config stuff must be in 1 int
-	int ff;
-	int Oxff;
+	int va;	// keep it as int, value can be 0, 1 or 2
+	bool ff;
+	ut8 Oxff; // which printable char to use instead of 0xff for unallocated bytes
 	size_t addrbytes;
-	int aslr;
-	int autofd;
-	int cached;
+	bool aslr;
+	bool autofd;
+	ut32 cached; // uses R_PERM_RWX
 	bool cachemode; // write in cache all the read operations (EXPERIMENTAL)
-	int p_cache;
+	ut32 p_cache; // uses 1, 2, 4.. probably R_PERM_RWX :D
 	RIDPool *map_ids;
 	RPVector maps; //from tail backwards maps with higher priority are found
 	RSkyline map_skyline; // map parts that are not covered by others
@@ -112,6 +112,7 @@ typedef struct r_io_t {
 	RSkyline cache_skyline;
 	ut8 *write_mask;
 	int write_mask_len;
+	ut64 mask;
 	RIOUndo undo;
 	SdbList *plugins;
 	char *runprofile;
@@ -139,13 +140,6 @@ typedef struct r_io_desc_t {
 	struct r_io_plugin_t *plugin;
 	RIO *io;
 } RIODesc;
-
-typedef struct {
-	ut32 magic;
-	int pid;
-	int tid;
-	void *data;
-} RIODescData;
 
 // Move somewhere else?
 typedef struct {
@@ -191,7 +185,7 @@ typedef struct r_io_map_t {
 	int perm;
 	ut32 id;
 	RInterval itv;
-	ut64 delta; // paddr = itv.addr + delta
+	ut64 delta; // paddr = vaddr - itv.addr + delta
 	char *name;
 } RIOMap;
 
@@ -271,7 +265,7 @@ typedef struct r_io_bind_t {
 	RIOFdRemap fd_remap;
 	RIOIsValidOff is_valid_offset;
 	RIOAddrIsMapped addr_is_mapped;
-	RIOMapGet map_get;
+	RIOMapGet map_get_at;
 	RIOMapGetPaddr map_get_paddr;
 	RIOMapAdd map_add;
 	RIOV2P v2p;
@@ -290,11 +284,11 @@ R_API bool r_io_map_remap_fd(RIO *io, int fd, ut64 addr);
 R_API ut64 r_io_map_location(RIO *io, ut64 size);
 R_API bool r_io_map_exists(RIO *io, RIOMap *map);
 R_API bool r_io_map_exists_for_id(RIO *io, ut32 id);
-R_API RIOMap *r_io_map_resolve(RIO *io, ut32 id);
+R_API RIOMap *r_io_map_get(RIO *io, ut32 id);
 R_API RIOMap *r_io_map_add(RIO *io, int fd, int flags, ut64 delta, ut64 addr, ut64 size);
 // same as r_io_map_add but used when many maps need to be added. Call r_io_update when all maps have been added.
 R_API RIOMap *r_io_map_add_batch(RIO *io, int fd, int flags, ut64 delta, ut64 addr, ut64 size);
-R_API RIOMap *r_io_map_get(RIO *io, ut64 addr);		//returns the map at vaddr with the highest priority
+R_API RIOMap *r_io_map_get_at(RIO *io, ut64 addr);		//returns the map at vaddr with the highest priority
 // update the internal state of RIO after a series of _batch operations
 R_API void r_io_update(RIO *io);
 R_API bool r_io_map_is_mapped(RIO* io, ut64 addr);
@@ -310,7 +304,7 @@ R_API void r_io_map_fini(RIO *io);
 R_API bool r_io_map_is_in_range(RIOMap *map, ut64 from, ut64 to);
 R_API void r_io_map_set_name(RIOMap *map, const char *name);
 R_API void r_io_map_del_name(RIOMap *map);
-R_API RList* r_io_map_get_for_fd(RIO *io, int fd);
+R_API RList* r_io_map_get_by_fd(RIO *io, int fd);
 R_API bool r_io_map_resize(RIO *io, ut32 id, ut64 newsize);
 
 // next free address to place a map.. maybe just unify

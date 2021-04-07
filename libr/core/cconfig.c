@@ -624,10 +624,10 @@ static bool cb_asmarch(void *user, void *data) {
 	//free the old value
 	char *asm_cpu = strdup (r_config_get (core->config, "asm.cpu"));
 	if (core->rasm->cur) {
-		const char *newAsmCPU = core->rasm->cur->cpus;
-		if (newAsmCPU) {
-			if (*newAsmCPU) {
-				char *nac = strdup (newAsmCPU);
+		const char *new_asm_cpu = core->rasm->cur->cpus;
+		if (new_asm_cpu) {
+			if (*new_asm_cpu) {
+				char *nac = strdup (new_asm_cpu);
 				char *comma = strchr (nac, ',');
 				if (comma) {
 					if (!*asm_cpu || (*asm_cpu && !strstr(nac, asm_cpu))) {
@@ -706,11 +706,7 @@ static bool cb_asmarch(void *user, void *data) {
 	}
 	{
 		int v = r_anal_archinfo (core->anal, R_ANAL_ARCHINFO_ALIGN);
-		if (v != -1) {
-			r_config_set_i (core->config, "asm.pcalign", v);
-		} else {
-			r_config_set_i (core->config, "asm.pcalign", 0);
-		}
+		r_config_set_i (core->config, "asm.pcalign", (v != -1)? v: 0);
 	}
 	/* reload types and cc info */
 	// changing asm.arch changes anal.arch
@@ -781,7 +777,7 @@ static bool cb_asmbits(void *user, void *data) {
 	}
 	if (core->dbg && core->anal && core->anal->cur) {
 		r_debug_set_arch (core->dbg, core->anal->cur->arch, bits);
-		bool load_from_debug = r_config_get_i (core->config, "cfg.debug");
+		const bool load_from_debug = r_config_get_b (core->config, "cfg.debug");
 		if (load_from_debug) {
 			if (core->dbg->h && core->dbg->h->reg_profile) {
 // XXX. that should depend on the plugin, not the host os
@@ -1390,7 +1386,9 @@ static bool cb_cmdpdc(void *user, void *data) {
 		RListIter *iter;
 		RCorePlugin *cp;
 		r_list_foreach (core->rcmd->plist, iter, cp) {
-			if (!strcmp (cp->name, "r2ghidra")) {
+			if (!strcmp (cp->name, "r2retdec")) {
+				r_cons_printf ("pdz\n");
+			} else if (!strcmp (cp->name, "r2ghidra")) {
 				r_cons_printf ("pdg\n");
 			}
 		}
@@ -1544,7 +1542,7 @@ static bool cb_dbg_forks(void *user, void *data) {
 	RCore *core = (RCore*) user;
 	RConfigNode *node = (RConfigNode*) data;
 	core->dbg->trace_forks = node->i_value;
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		r_debug_attach (core->dbg, core->dbg->pid);
 	}
 	return true;
@@ -1583,7 +1581,7 @@ static bool cb_dbg_execs(void *user, void *data) {
 #if __linux__
 	RCore *core = (RCore*) user;
 	core->dbg->trace_execs = node->i_value;
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		r_debug_attach (core->dbg, core->dbg->pid);
 	}
 #else
@@ -1598,7 +1596,7 @@ static bool cb_dbg_clone(void *user, void *data) {
 	RCore *core = (RCore*) user;
 	RConfigNode *node = (RConfigNode*) data;
 	core->dbg->trace_clone = node->i_value;
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		r_debug_attach (core->dbg, core->dbg->pid);
 	}
 	return true;
@@ -1622,7 +1620,7 @@ static bool cb_dbg_aftersc(void *user, void *data) {
 	RCore *core = (RCore*) user;
 	RConfigNode *node = (RConfigNode*) data;
 	core->dbg->trace_aftersyscall = node->i_value;
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		r_debug_attach (core->dbg, core->dbg->pid);
 	}
 	return true;
@@ -1654,7 +1652,7 @@ static bool cb_dbg_args(void *user, void *data) {
 static bool cb_dbgstatus(void *user, void *data) {
 	RCore *r = (RCore*) user;
 	RConfigNode *node = (RConfigNode*) data;
-	if (r_config_get_i (r->config, "cfg.debug")) {
+	if (r_config_get_b (r->config, "cfg.debug")) {
 		if (node->i_value) {
 			r_config_set (r->config, "cmd.prompt",
 				".dr*; drd; sr PC;pi 1;s-");
@@ -2111,9 +2109,7 @@ static bool cb_io_cache(void *user, void *data) {
 static bool cb_ioaslr(void *user, void *data) {
 	RCore *core = (RCore *) user;
 	RConfigNode *node = (RConfigNode *) data;
-	if (node->i_value != core->io->aslr) {
-		core->io->aslr = node->i_value;
-	}
+	core->io->aslr = (bool)node->i_value;
 	return true;
 }
 
@@ -2122,7 +2118,7 @@ static bool cb_io_pava(void *user, void *data) {
 	RConfigNode *node = (RConfigNode *) data;
 	core->print->pava = node->i_value;
 	if (node->i_value && core->io->va) {
-		eprintf ("WARNING: You may probably want to disable io.va too\n");
+		eprintf ("Warning: You may probably want to disable io.va too.\n");
 	}
 	return true;
 }
@@ -2149,21 +2145,29 @@ static bool cb_iova(void *user, void *data) {
 static bool cb_ioff(void *user, void *data) {
 	RCore *core = (RCore *) user;
 	RConfigNode *node = (RConfigNode *) data;
-	core->io->ff = node->i_value;
+	core->io->ff = (bool)node->i_value;
+	return true;
+}
+
+static bool cb_iomask(void *user, void *data) {
+	RCore *core = (RCore *) user;
+	RConfigNode *node = (RConfigNode *) data;
+	core->io->mask = node->i_value;
+	core->flags->mask = node->i_value;
 	return true;
 }
 
 static bool cb_io_oxff(void *user, void *data) {
 	RCore *core = (RCore *) user;
 	RConfigNode *node = (RConfigNode *) data;
-	core->io->Oxff = node->i_value;
+	core->io->Oxff = (ut8)node->i_value;
 	return true;
 }
 
 static bool cb_ioautofd(void *user, void *data) {
 	RCore *core = (RCore *) user;
 	RConfigNode *node = (RConfigNode *) data;
-	core->io->autofd = node->i_value;
+	core->io->autofd = (bool)node->i_value;
 	return true;
 }
 
@@ -3392,7 +3396,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETOPTIONS (n, "a", "8", "p", "e", "u", "i", "U", "f", NULL);
 	SETCB ("bin.filter", "true", &cb_binfilter, "Filter symbol names to fix dupped names");
 	SETCB ("bin.force", "", &cb_binforce, "Force that rbin plugin");
-	SETPREF ("bin.cache", "false", "Enable io.cache and fall to io.cache.read if bin needs to patch relocs");
+	SETPREF ("bin.cache", "false", "Use io.cache.read if bin needs to patch relocs");
 	SETPREF ("bin.lang", "", "Language for bin.demangle");
 	SETBPREF ("bin.demangle", "true", "Import demangled symbols from RBin");
 	SETBPREF ("bin.demangle.libs", "false", "Show library name on demangled symbols names");
@@ -3722,8 +3726,10 @@ R_API int r_core_config_init(RCore *core) {
 
 	/* graph */
 	SETBPREF ("graph.aeab", "false", "Show aeab info on each basic block instead of disasm");
+	SETI ("graph.zoom", 0, "Default zoom value when rendering the graph");
 	SETBPREF ("graph.trace", "false", "Fold all non-traced basic blocks");
 	SETBPREF ("graph.dummy", "true", "Create dummy nodes in the graph for better layout (20% slower)");
+	SETBPREF ("graph.mini", "false", "Render a minigraph next to the graph in braile art");
 	SETBPREF ("graph.few", "false", "Show few basic blocks in the graph");
 	SETBPREF ("graph.comments", "true", "Show disasm comments in graph");
 	SETBPREF ("graph.cmtright", "false", "Show comments at right");
@@ -3782,6 +3788,7 @@ R_API int r_core_config_init(RCore *core) {
 #endif
 	r_config_desc (cfg, "scr.fgets", "Use fgets() instead of dietline for prompt input");
 	SETCB ("scr.echo", "false", &cb_screcho, "Show rcons output in realtime to stderr and buffer");
+	SETPREF ("scr.loopnl", "false", "Add a newline after every command executed in @@ loops");
 	SETICB ("scr.linesleep", 0, &cb_scrlinesleep, "Flush sleeping some ms in every line");
 	SETICB ("scr.maxtab", 4096, &cb_completion_maxtab, "Change max number of auto completion suggestions");
 	SETICB ("scr.pagesize", 1, &cb_scrpagesize, "Flush in pages when scr.linesleep is != 0");
@@ -3900,6 +3907,7 @@ R_API int r_core_config_init(RCore *core) {
 	SETCB ("io.pcache.write", "false", &cb_iopcachewrite, "Enable write-cache");
 	SETCB ("io.pcache.read", "false", &cb_iopcacheread, "Enable read-cache");
 	SETCB ("io.ff", "true", &cb_ioff, "Fill invalid buffers with 0xff instead of returning error");
+	SETICB ("io.mask", 0, &cb_iomask, "Mask addresses before resolving as maps");
 	SETBPREF ("io.exec", "true", "See !!r2 -h~-x");
 	SETICB ("io.0xff", 0xff, &cb_io_oxff, "Use this value instead of 0xff to fill unallocated areas");
 	SETCB ("io.aslr", "false", &cb_ioaslr, "Disable ASLR for spawn and such");

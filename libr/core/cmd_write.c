@@ -1522,7 +1522,7 @@ static int wt_handler_old(void *data, const char *input) {
 					r_core_cmd_help (core, help_msg_wt);
 					return 0;
 				}
-				RIOMap *map = r_io_map_get (core->io, poff);
+				RIOMap *map = r_io_map_get_at (core->io, poff);
 				toend = true;
 				//use physical address
 				poff = map ? poff - r_io_map_begin (map) + map->delta : poff;
@@ -2007,7 +2007,13 @@ static int cmd_write(void *data, const char *input) {
 		wc_handler_old (core, input + 1);
 		break;
 	case 'h': // "wh"
-		wh_handler_old (core, input + 1);
+		if (!strcmp (input, "hoami")) {
+			char *ui = r_sys_whoami ();
+			r_cons_printf ("%s\n", ui);
+			free (ui);
+		} else {
+			wh_handler_old (core, input + 1);
+		}
 		break;
 	case 'e': // "we"
 		we_handler_old (core, input + 1);
@@ -2033,7 +2039,8 @@ static int cmd_write(void *data, const char *input) {
 		} else {
 			if (len > 0) {
 				size_t in_len = strlen (input + 1);
-				ut8 *out = malloc (in_len); //suppose in len = out len TODO: change it
+				int max = core->print->charset->encode_maxkeylen;
+				ut8 *out = malloc (in_len * max); //suppose in len = out len TODO: change it
 				if (out) {
 					r_charset_decode_str (core->print->charset, out, in_len, (const unsigned char *) input + 1, in_len);
 					w_handler_old (core, (const char *)out);

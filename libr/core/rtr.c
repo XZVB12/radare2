@@ -141,13 +141,14 @@ static void rtr_textlog_chat (RCore *core, TextLog T) {
 			eprintf ("/log            show full log\n");
 			eprintf ("/clear          clear text log messages\n");
 		} else if (!strncmp (buf, "/nick ", 6)) {
-			snprintf (msg, sizeof (msg) - 1, "* '%s' is now known as '%s'", me, buf+6);
-			r_cons_println (msg);
-			r_core_log_add (core, msg);
+			char *m = r_str_newf ("* '%s' is now known as '%s'", me, buf+6);
+			r_cons_println (m);
+			r_core_log_add (core, m);
 			r_config_set (core->config, "cfg.user", buf+6);
 			me = r_config_get (core->config, "cfg.user");
 			snprintf (prompt, sizeof (prompt) - 1, "[%s]> ", me);
 			r_line_set_prompt (prompt);
+			free (m);
 		} else if (!strcmp (buf, "/log")) {
 			char *ret = rtrcmd (T, "T");
 			if (ret) {
@@ -796,6 +797,7 @@ R_API void r_core_rtr_add(RCore *core, const char *_input) {
 			char *str = r_socket_http_get (uri, NULL, &len);
 			if (!str) {
 				eprintf ("Cannot find peer\n");
+				r_socket_free (fd);
 				return;
 			}
 			core->num->value = 0;

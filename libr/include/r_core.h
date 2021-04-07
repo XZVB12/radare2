@@ -30,7 +30,7 @@
 #include "r_util/r_print.h"
 #include "r_crypto.h"
 #include "r_bind.h"
-#include "r_util/r_annotated_code.h"
+#include "r_codemeta.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -104,6 +104,17 @@ typedef enum {
 #define R_CORE_VISUAL_MODE_PXR   9
 */
 
+typedef struct r_core_plugin_t {
+	const char *name;
+	const char *desc;
+	const char *license;
+	const char *author;
+	const char *version;
+	RCmdCb call; // returns true if command was handled, false otherwise.
+	RCmdCb init;
+	RCmdCb fini;
+} RCorePlugin;
+
 typedef struct r_core_rtr_host_t {
 	int proto;
 	char host[512];
@@ -155,6 +166,7 @@ typedef enum r_core_autocomplete_types_t {
 	R_CORE_AUTOCMPLT_FCN,
 	R_CORE_AUTOCMPLT_ZIGN,
 	R_CORE_AUTOCMPLT_EVAL,
+	R_CORE_AUTOCMPLT_VARS,
 	R_CORE_AUTOCMPLT_PRJT,
 	R_CORE_AUTOCMPLT_MINS,
 	R_CORE_AUTOCMPLT_BRKP,
@@ -215,7 +227,7 @@ typedef struct {
 	char *cmd;
 } RCoreGadget;
 
-R_API void r_core_gadget_free (RCoreGadget *g);
+R_API void r_core_gadget_free(RCoreGadget *g);
 
 typedef struct r_core_tasks_t {
 	int task_id_next;
@@ -619,6 +631,7 @@ R_API RList *r_core_anal_fcn_get_calls (RCore *core, RAnalFunction *fcn); // get
 R_API void r_core_anal_type_match(RCore *core, RAnalFunction *fcn);
 
 /* asm.c */
+#define R_MIDFLAGS_HIDE 0
 #define R_MIDFLAGS_SHOW 1
 #define R_MIDFLAGS_REALIGN 2
 #define R_MIDFLAGS_SYMALIGN 3
@@ -856,6 +869,9 @@ R_API int r_line_hist_offset_down(RLine *line);
 
 // TODO : move into debug or syscall++
 R_API char *cmd_syscall_dostr(RCore *core, st64 num, ut64 addr);
+R_API void cmd_agfb(RCore *core);
+R_API void cmd_agfb2(RCore *core, const char *s);
+R_API void cmd_agfb3(RCore *core, const char *s, int x, int y);
 
 /* tasks */
 
@@ -931,6 +947,11 @@ R_API void r_core_anal_propagate_noreturn(RCore *core, ut64 addr);
 /* PLUGINS */
 extern RCorePlugin r_core_plugin_java;
 extern RCorePlugin r_core_plugin_a2f;
+R_API bool r_core_plugin_init(RCmd *cmd);
+R_API bool r_core_plugin_add(RCmd *cmd, RCorePlugin *plugin);
+R_API bool r_core_plugin_check(RCmd *cmd, const char *a0);
+R_API bool r_core_plugin_fini(RCmd *cmd);
+
 
 /* DECOMPILER PRINTING FUNCTIONS */
 /**
@@ -940,7 +961,7 @@ extern RCorePlugin r_core_plugin_a2f;
  * 
  * @param code Pointer to a RAnnotatedCode.
  */
-R_API void r_core_annotated_code_print_json(RAnnotatedCode *code);
+R_API void r_codemeta_print_json(RCodeMeta *code);
 /**
  * @brief Prints the decompiled code from the specified RAnnotatedCode.
  * 
@@ -953,7 +974,7 @@ R_API void r_core_annotated_code_print_json(RAnnotatedCode *code);
  * @param code Pointer to a RAnnotatedCode.
  * @param line_offsets Pointer to a @ref RVector that contains offsets for the decompiled code.
  */
-R_API void r_core_annotated_code_print(RAnnotatedCode *code, RVector *line_offsets);
+R_API void r_codemeta_print(RCodeMeta *code, RVector *line_offsets);
 /**
  * @brief  Prints the decompiled code as comments
  * 
@@ -962,7 +983,7 @@ R_API void r_core_annotated_code_print(RAnnotatedCode *code, RVector *line_offse
  * 
  * @param code Pointer to a RAnnotatedCode.
  */
-R_API void r_core_annotated_code_print_comment_cmds(RAnnotatedCode *code);
+R_API void r_codemeta_print_comment_cmds(RCodeMeta *code);
 
 #endif
 

@@ -1,11 +1,6 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake */
+/* radare - LGPL - Copyright 2009-2021 - pancake */
 
-#include <r_cmd.h>
-#include <r_util.h>
-#include <stdio.h>
-#include <r_cons.h>
-#include <r_cmd.h>
-#include <r_util.h>
+#include <r_core.h>
 
 /*!
  * Number of sub-commands to show as options when displaying the help of a
@@ -61,14 +56,15 @@ static void cmd_desc_unset_parent(RCmdDesc *cd) {
 	cd->parent = NULL;
 }
 
-static void cmd_desc_remove_from_ht_cmds(RCmd *cmd, RCmdDesc *cd) {
+static bool cmd_desc_remove_from_ht_cmds(RCmd *cmd, RCmdDesc *cd) {
 	void **it_cd;
 	bool res = ht_pp_delete (cmd->ht_cmds, cd->name);
-	r_return_if_fail (res);
+	r_return_val_if_fail (res, false);
 	r_cmd_desc_children_foreach (cd, it_cd) {
 		RCmdDesc *child_cd = *it_cd;
 		cmd_desc_remove_from_ht_cmds (cmd, child_cd);
 	}
+	return res;
 }
 
 static void cmd_desc_free(RCmdDesc *cd) {
@@ -344,7 +340,7 @@ R_API int r_cmd_call(RCmd *cmd, const char *input) {
 			}
 		}
 		r_list_foreach (cmd->plist, iter, cp) {
-			if (cp->call (cmd->data, input)) {
+			if (cp->call && cp->call (cmd->data, input)) {
 				free (nstr);
 				return true;
 			}

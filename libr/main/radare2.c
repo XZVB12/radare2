@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake */
+/* radare - LGPL - Copyright 2009-2021 - pancake */
 
 #define USE_THREADS 1
 #define ALLOW_THREADED 0
@@ -74,9 +74,9 @@ static int r_main_version_verify(int show) {
 	}
 	if (ret) {
 		if (show) {
-			eprintf ("WARNING: r2 library versions mismatch!\n");
+			eprintf ("Warning: r2 library versions mismatch!\n");
 		} else {
-			eprintf ("WARNING: r2 library versions mismatch! See r2 -V\n");
+			eprintf ("Warning: r2 library versions mismatch! See r2 -V\n");
 		}
 	}
 	return ret;
@@ -110,6 +110,7 @@ static int main_help(int line) {
 		" -H ([var])   display variable\n"
 		" -i [file]    run script file\n"
 		" -I [file]    run script file before the file is opened\n"
+		" -j           use json for -v, -L and maybe others\n"
 		" -k [OS/kern] set asm.os (linux, macos, w32, netbsd, ...)\n"
 		" -l [lib]     load plugin file\n"
 		" -L           list supported IO plugins\n"
@@ -153,8 +154,9 @@ static int main_help(int line) {
 		" R2_USER_ZIGNS " R_JOIN_2_PATHS ("~", R2_HOME_ZIGNS) "\n"
 		"Environment:\n"
 		" R2_CFG_NEWSHELL sets cfg.newshell=true\n"
-		" R2_DEBUG      if defined, show error messages and crash signal\n"
-		" R2_DEBUG_ASSERT=1 set a breakpoint when hitting an assert\n"
+		" R2_DEBUG      if defined, show error messages and crash signal.\n"
+		" R2_DEBUG_ASSERT=1 set a breakpoint when hitting an assert.\n"
+		" R2_IGNVER=1   load plugins ignoring the specified version. (be careful)\n"
 		" R2_MAGICPATH " R_JOIN_2_PATHS ("%s", R2_SDB_MAGIC) "\n"
 		" R2_NOPLUGINS do not load r2 shared plugins\n"
 		" R2_RCFILE    ~/.radare2rc (user preferences, batch script)\n" // TOO GENERIC
@@ -445,14 +447,19 @@ R_API int r_main_radare2(int argc, const char **argv) {
 	}
 
 	set_color_default (r);
+	bool show_version = false;
+	bool json = false;
 	bool load_l = true;
 	char *debugbackend = strdup ("native");
 	const char *project_name = NULL;
 
 	RGetopt opt;
-	r_getopt_init (&opt, argc, argv, "=02AMCwxfF:H:hm:e:nk:NdqQs:p:b:B:a:Lui:I:l:P:R:r:c:D:vVSTzuXt");
+	r_getopt_init (&opt, argc, argv, "=02AjMCwxfF:H:hm:e:nk:NdqQs:p:b:B:a:Lui:I:l:P:R:r:c:D:vVSTzuXt");
 	while ((c = r_getopt_next (&opt)) != -1) {
 		switch (c) {
+		case 'j':
+			json = true;
+			break;
 		case '=':
 			R_FREE (r->cmdremote);
 			r->cmdremote = strdup ("");
@@ -482,6 +489,7 @@ R_API int r_main_radare2(int argc, const char **argv) {
 			break;
 		case 'b':
 			asmbits = opt.arg;
+			r_config_set (r->config, "asm.bits", opt.arg);
 			break;
 		case 'B':
 			baddr = r_num_math (r->num, opt.arg);
@@ -509,7 +517,7 @@ R_API int r_main_radare2(int argc, const char **argv) {
 				r_cons_flush ();
 				LISTS_FREE ();
 				free (envprofile);
-                free (debugbackend);
+				free (debugbackend);
 				return 0;
 			}
 			break;
@@ -639,7 +647,7 @@ R_API int r_main_radare2(int argc, const char **argv) {
 #if ALLOW_THREADED
 			threaded = true;
 #else
-			eprintf ("WARNING: -t is temporarily disabled!\n");
+			eprintf ("Warning: -t is temporarily disabled!\n");
 #endif
 			break;
 #endif
@@ -647,19 +655,8 @@ R_API int r_main_radare2(int argc, const char **argv) {
 			compute_hashes = false;
 			break;
 		case 'v':
-			if (quiet) {
-				printf ("%s\n", R2_VERSION);
-				LISTS_FREE ();
-				free (debugbackend);
-				free (customRarunProfile);
-				return 0;
-			} else {
-				r_main_version_verify (0);
-				LISTS_FREE ();
-				free (customRarunProfile);
-				free (debugbackend);
-				return r_main_version_print ("radare2");
-			}
+			show_version = true;
+			break;
 		case 'V':
 			return r_main_version_verify (1);
 		case 'w':
@@ -672,6 +669,40 @@ R_API int r_main_radare2(int argc, const char **argv) {
 		default:
 			help++;
 		}
+	}
+	if (show_version) {
+		if (json) {
+			PJ *pj = pj_new ();
+			pj_o (pj);
+			pj_ks (pj, "name", "radare2");
+			pj_ks (pj, "version", R2_VERSION);
+			pj_ks (pj, "birth", R2_BIRTH);
+			pj_ks (pj, "commit", R2_GITTIP);
+			pj_ki (pj, "commits", R2_VERSION_COMMIT);
+			pj_ks (pj, "license", "LGPLv3");
+			pj_ks (pj, "tap", R2_GITTAP);
+			pj_ko (pj, "semver");
+			pj_ki (pj, "major", R2_VERSION_MAJOR);
+			pj_ki (pj, "minor", R2_VERSION_MINOR);
+			pj_ki (pj, "patch", R2_VERSION_MINOR);
+			pj_end (pj);
+			pj_end (pj);
+			char *s = pj_drain (pj);
+			printf ("%s\n", s);
+			free (s);
+		} else if (quiet) {
+			printf ("%s\n", R2_VERSION);
+			LISTS_FREE ();
+			free (debugbackend);
+			free (customRarunProfile);
+		} else {
+			r_main_version_verify (0);
+			LISTS_FREE ();
+			free (customRarunProfile);
+			free (debugbackend);
+			return r_main_version_print ("radare2");
+		}
+		return 0;
 	}
 	if (noStderr) {
 		if (-1 == close (2)) {
@@ -748,7 +779,11 @@ R_API int r_main_radare2(int argc, const char **argv) {
 		if (quietLeak) {
 			exit (0);
 		}
-		r_io_plugin_list (r->io);
+		if (json) {
+			r_io_plugin_list_json (r->io);
+		} else {
+			r_io_plugin_list (r->io);
+		}
 		r_cons_flush ();
 		LISTS_FREE ();
 		free (pfile);
@@ -1113,6 +1148,12 @@ R_API int r_main_radare2(int argc, const char **argv) {
 							 eprintf ("r_io_create: Permission denied.\n");
 						}
 					}
+					if (baddr == UT64_MAX) {
+						const ut64 io_plug_baddr = r_config_get_i (r->config, "bin.baddr");
+						if (io_plug_baddr != UT64_MAX) {
+							baddr = io_plug_baddr;
+						}
+					}
 					if (fh) {
 						iod = r->io ? r_io_desc_get (r->io, fh->fd) : NULL;
 						if (iod && perms & R_PERM_X) {
@@ -1249,11 +1290,11 @@ R_API int r_main_radare2(int argc, const char **argv) {
 			r_config_eval (r->config, cmdn, false);
 			r_cons_flush ();
 		}
-		if (asmarch) {
-			r_config_set (r->config, "asm.arch", asmarch);
-		}
 		if (asmbits) {
 			r_config_set (r->config, "asm.bits", asmbits);
+		}
+		if (asmarch) {
+			r_config_set (r->config, "asm.arch", asmarch);
 		}
 		if (asmos) {
 			r_config_set (r->config, "asm.os", asmos);

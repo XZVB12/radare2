@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2020 - pancake */
+/* radare2 - LGPL - Copyright 2007-2021 - pancake */
 
 #include <r_util/r_print.h>
 #include <r_anal.h>
@@ -1741,8 +1741,8 @@ static inline void printHistBlock (RPrint *p, int k, int cols) {
 	}
 	const bool show_colors = (p && (p->flags & R_PRINT_FLAGS_COLOR));
 	if (show_colors) {
-		int idx = (int) ((k * 4) / cols);
-		const char *str = kol[idx];
+		int idx = (int) ((k * 5) / cols);
+		const char *str = kol[idx % 5];
 		if (p->histblock) {
 			p->cb_printf ("%s%s%s", str, block, Color_RESET);
 		} else {
@@ -2195,7 +2195,7 @@ R_API char* r_print_colorize_opcode(RPrint *print, char *p, const char *reg, con
 		case '0': /* address */
 			if (p[i + 1] == 'x') {
 				if (print->flags & R_PRINT_FLAGS_SECSUB) {
-					RIOMap *map = print->iob.map_get (print->iob.io, r_num_get (NULL, p + i));
+					RIOMap *map = print->iob.map_get_at (print->iob.io, r_num_get (NULL, p + i));
 					if (map && map->name) {
 						if (strlen (map->name) + j + 1 >= COLORIZE_BUFSIZE) {
 							eprintf ("stop before overflow\n");
@@ -2384,4 +2384,53 @@ R_API void r_print_rowlog_done(RPrint *print, const char *str) {
 			print->cb_eprintf ("\r[x] %s\n", str);
 		}
 	}
+}
+
+
+R_API RBraile r_print_braile(int u) {
+#define CH0(x) ((x) >> 8)
+#define CH1(x) ((x) & 0xff)
+	RBraile b = {0};
+	b.str[0] = 0xe2;
+	b.str[1] = 0xa0 | CH0(u);
+	b.str[2] = 0x80 | CH1(u);
+	b.str[3] = 0;
+	return b;
+}
+
+R_API void r_print_graphline(RPrint *print, const ut8 *buf, size_t len) {
+	const bool utf8 = print->cons->use_utf8;
+	if (utf8) {
+		size_t i;
+		for (i = 0; i < len; i++) {
+			int brailechar = 0;
+			ut8 ch = buf[i];
+			switch (0|(ch / 64)) {
+			case 0:
+				brailechar = $30 + $31;
+				break;
+			case 1:
+				brailechar = $20 + $21;
+				break;
+			case 2:
+				brailechar = $10 + $11;
+				break;
+			case 3:
+				brailechar = $00 + $01;
+				break;
+			}
+			if (brailechar) {
+				RBraile b = r_print_braile (brailechar);
+				print->cb_printf ("%s\n", b.str);
+			}
+		}
+	} else {
+		const char *chars = "_.-'\"`";
+		// const char *chars = "_.,-^'";
+		size_t i;
+		for (i = 0; i < len; i++) {
+			print->cb_printf ("%c", chars[buf[i]/50]);
+		}
+	}
+	print->cb_printf ("\n");
 }

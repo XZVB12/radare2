@@ -6,7 +6,6 @@ if [ "$(id -u)" = 0 ]; then
 		echo "[--] Downgrading credentials to ${SUDO_USER}"
 		exec sudo -u "${SUDO_USER}" sys/install.sh $*
 	fi
-	exit 1
 fi
 
 # if owner of sys/install.sh != uid && uid == 0 { exec sudo -u id -A $SUDO_UID sys/install.sh $* }

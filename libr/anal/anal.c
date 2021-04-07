@@ -128,7 +128,7 @@ R_API RAnal *r_anal_new(void) {
 	anal->last_disasm_reg = NULL;
 	anal->stackptr = 0;
 	anal->lineswidth = 0;
-	anal->fcns = r_list_newf (r_anal_function_free);
+	anal->fcns = r_list_newf ((RListFree)r_anal_function_free);
 	anal->leaddrs = NULL;
 	anal->imports = r_list_newf (free);
 	r_anal_set_bits (anal, 32);
@@ -321,7 +321,9 @@ R_API void r_anal_set_cpu(RAnal *anal, const char *cpu) {
 R_API void r_anal_set_big_endian(RAnal *anal, int bigend) {
 	r_return_if_fail (anal);
 	anal->big_endian = bigend;
-	anal->reg->big_endian = bigend;
+	if (anal->reg) {
+		anal->reg->big_endian = bigend;
+	}
 }
 
 R_API ut8 *r_anal_mask(RAnal *anal, int size, const ut8 *data, ut64 at) {
@@ -432,7 +434,7 @@ R_API void r_anal_purge(RAnal *anal) {
 	r_anal_pin_init (anal);
 	sdb_reset (anal->sdb_cc);
 	r_list_free (anal->fcns);
-	anal->fcns = r_list_newf (r_anal_function_free);
+	anal->fcns = r_list_newf ((RListFree)r_anal_function_free);
 	r_anal_purge_imports (anal);
 }
 

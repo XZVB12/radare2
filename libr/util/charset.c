@@ -101,7 +101,7 @@ R_API RCharsetRune *search_from_hex(RCharsetRune *r, const ut8 *hx) {
 R_API size_t r_charset_encode_str(RCharset *rc, ut8 *out, size_t out_len, const ut8 *in, size_t in_len) {
 	char k[32];
 	char *o = (char*)out;
-	int i;
+	size_t i;
 	for (i = 0; i < in_len; i++) {
 		ut8 ch_in = in[i];
 
@@ -123,11 +123,14 @@ R_API size_t r_charset_decode_str(RCharset *rc, ut8 *out, size_t out_len, const 
 	size_t maxkeylen = rc->encode_maxkeylen;
 	size_t cur, j;
 	for (cur = 0; cur < in_len; cur++) {
-		size_t left = in_len - cur + 1;
-		size_t toread = R_MIN (left, maxkeylen);
-		char *str = r_str_ndup ((char *)in + cur, toread + 1);
+		size_t left = in_len - cur;
+		size_t toread = R_MIN (left + 1, maxkeylen);
+		char *str = calloc (toread + 128, 1);
+		r_str_ncpy (str, (char *)in + cur, toread);
 		bool found = false;
 		for (j = toread; cur < in_len && j > 0; j--) {
+			left = in_len - cur +1;
+			toread = R_MIN (left, maxkeylen);
 			//zero terminate the string
 			str[j] = '\0';
 

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2020 - pancake */
+/* radare - LGPL - Copyright 2007-2021 - pancake */
 
 #include "r_types.h"
 #include "r_util.h"
@@ -542,27 +542,27 @@ R_API int r_str_char_count(const char *string, char ch) {
 			count++;
 		}
 	}
-	return count;
+	return R_MAX (0, count);
 }
 
 // Counts the number of words (separated by separator characters: newlines, tabs,
 // return, space). See r_util.h for more details of the IS_SEPARATOR macro.
 R_API int r_str_word_count(const char *string) {
-	const char *text, *tmp;
+	const char *text;
 	int word;
 
-	for (text = tmp = string; *text && IS_SEPARATOR (*text); text++) {
+	for (text = string; *text && IS_SEPARATOR (*text); text++) {
 		;
 	}
 	for (word = 0; *text; word++) {
 		for (; *text && !IS_SEPARATOR (*text); text++) {
 			;
 		}
-		for (tmp = text; *text && IS_SEPARATOR (*text); text++) {
+		for (; *text && IS_SEPARATOR (*text); text++) {
 			;
 		}
 	}
-	return word;
+	return R_MAX (0, word);
 }
 
 // Returns a pointer to the first instance of a character that isn't chr in a
@@ -833,15 +833,17 @@ R_API const char *r_str_getf(const char *str) {
 }
 
 R_API char *r_str_ndup(const char *ptr, int len) {
-	if (len < 0) {
+	if (!ptr || len < 0) {
 		return NULL;
 	}
-	char *out = malloc (len + 1);
+	size_t plen = r_str_nlen (ptr, len);
+	size_t olen = R_MIN (len, plen);
+	char *out = malloc (olen + 1);
 	if (!out) {
 		return NULL;
 	}
-	strncpy (out, ptr, len);
-	out[len] = 0;
+	memcpy (out, ptr, olen);
+	out[olen] = 0;
 	return out;
 }
 
@@ -1919,7 +1921,7 @@ R_API size_t r_str_ansi_len(const char *str) {
 R_API size_t r_str_nlen(const char *str, int n) {
 	size_t len = 0;
 	if (str) {
-		while (*str && n > 0) {
+		while (n > 0 && *str) {
 			len++;
 			str++;
 			n--;
@@ -2201,7 +2203,7 @@ R_API size_t r_str_utf8_codepoint(const char* s, size_t left) {
 	return 0;
 }
 
-R_API bool r_str_char_fullwidth (const char* s, size_t left) {
+R_API bool r_str_char_fullwidth(const char* s, size_t left) {
 	size_t codepoint = r_str_utf8_codepoint (s, left);
 	return (codepoint >= 0x1100 &&
 		 (codepoint <= 0x115f ||                  /* Hangul Jamo init. consonants */
@@ -2293,55 +2295,45 @@ R_API void r_str_filter(char *str, int len) {
 }
 
 R_API bool r_str_glob(const char* str, const char *glob) {
-        const char* cp = NULL, *mp = NULL;
-        if (!glob || !strcmp (glob, "*")) {
-                return true;
-        }
-        if (!strchr (glob, '*')) {
-                if (*glob == '^') {
-                        glob++;
-                        while (*str) {
-                                if (*glob != *str) {
-                                        return false;
-                                }
-                                if (!*++glob) {
-                                        return true;
-                                }
-                                str++;
-                        }
-                } else {
-                        return strstr (str, glob) != NULL;
-                }
-        }
-        if (*glob == '^') {
-                glob++;
-        }
-        while (*str && (*glob != '*')) {
-                if (*glob != *str) {
-                        return false;
-                }
-                glob++;
-                str++;
-        }
-        while (*str) {
-                if (*glob == '*') {
-                        if (!*++glob) {
-                                return true;
-                        }
-                        mp = glob;
-                        cp = str + 1;
-                } else if (*glob == *str) {
-                        glob++;
-                        str++;
-                } else {
-                        glob = mp;
-                        str = cp++;
-                }
-        }
-        while (*glob == '*') {
-                ++glob;
-        }
-        return (*glob == '\x00');
+	if (!glob) {
+		return true;
+	}
+	char* begin = strchr (glob, '^');
+	if (begin) {
+		glob = ++begin;
+	}
+	while (*str) {
+		if (!*glob) {
+			return true;
+		}
+		switch (*glob) {
+		case '*':
+			if (!*++glob) {
+				return true;
+			}
+			while (*str) {
+				if (*glob == *str) {
+					break;
+				}
+				str++;
+			}
+			break;
+		case '$':
+			return (*++glob == '\x00');
+		case '?':
+			str++;
+			glob++;
+			break;
+		default:
+			if (*glob != *str) {
+				return false;
+			}
+			str++;
+			glob++;
+		}
+	}
+	while (*glob == '*') { ++glob; }
+	return ((*glob == '$' && !*glob++)  || !*glob);
 }
 
 // Escape the string arg so that it is parsed as a single argument by r_str_argv
@@ -3555,14 +3547,14 @@ err_r_str_mb_to_wc:
 }
 
 R_API char* r_str_wc_to_mb_l(const wchar_t *buf, int len) {
+	r_return_val_if_fail (buf, NULL);
 	char *res_buf = NULL;
 	bool fail = true;
-	size_t sz;
 
-	if (!buf || len <= 0) {
+	if (len <= 0) {
 		return NULL;
 	}
-	sz = wcstombs (NULL, buf, len);
+	size_t sz = wcstombs (NULL, buf, 0);
 	if (sz == (size_t)-1) {
 		goto err_r_str_wc_to_mb;
 	}
@@ -3773,6 +3765,14 @@ R_API char *r_str_scale(const char *s, int w, int h) {
 	return r_str_list_join (out, "\n");
 }
 
+// returns value between 0 and 100 about how much different the strings are
+R_API int r_str_distance(const char *a, const char *b) {
+	ut32 distance = 0;
+	double similarity = 0;
+	r_diff_buffers_distance_levenshtein (NULL, (const ut8*)a, strlen (a), (const ut8*)b, strlen (b), &distance, &similarity);
+	return (int)(similarity * 100);;
+}
+
 R_API const char *r_str_str_xy(const char *s, const char *word, const char *prev, int *x, int *y) {
 	r_return_val_if_fail (s && word && x && y, NULL);
 	r_return_val_if_fail (word[0] != '\0' && word[0] != '\n', NULL);
@@ -3822,4 +3822,33 @@ R_API char *r_str_version(const char *program) {
 		s = r_str_appendf (s, "commit: "R2_GITTIP" build: "R2_BIRTH);
 	}
 	return s;
+}
+
+R_API int r_str_size(const char *s, int *rows) {
+	RRune ch;
+	int cols = 0;
+	int h = 0;
+	const char *e = s + strlen (s);
+	int ll = 0;
+	while (*s) {
+		if (*s == '\n') {
+			h++;
+			s++;
+			if (ll > cols) {
+				cols = ll;
+			}
+			ll = 0;
+			continue;
+		}
+		int chsz = r_utf8_decode ((const ut8*)s, e - s, &ch);
+		if (chsz < 1) {
+			chsz = 1;
+		}
+		s += chsz;
+		ll++;
+	}
+	if (rows) {
+		*rows = h;
+	}
+	return cols;
 }

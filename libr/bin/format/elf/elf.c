@@ -344,7 +344,7 @@ static int init_phdr(ELFOBJ *bin) {
 static int init_shdr(ELFOBJ *bin) {
 	ut32 shdr_size;
 	ut8 shdr[sizeof (Elf_(Shdr))] = { 0 };
-	int i, j, len;
+	size_t i, j, len;
 
 	r_return_val_if_fail (bin && !bin->shdr, false);
 
@@ -729,12 +729,11 @@ static RBinElfSection* get_section_by_name(ELFOBJ *bin, const char *section_name
 }
 
 static char *get_ver_flags(ut32 flags) {
-	static char buff[32];
-	buff[0] = 0;
-
 	if (!flags) {
 		return "none";
 	}
+	static char buff[32];
+	buff[0] = 0;
 	if (flags & VER_FLG_BASE) {
 		strcpy (buff, "BASE ");
 	}
@@ -744,7 +743,6 @@ static char *get_ver_flags(ut32 flags) {
 		}
 		strcat (buff, "WEAK ");
 	}
-
 	if (flags & ~(VER_FLG_BASE | VER_FLG_WEAK)) {
 		strcat (buff, "| <unknown>");
 	}
@@ -1723,7 +1721,7 @@ ut64 Elf_(r_bin_elf_get_boffset)(ELFOBJ *bin) {
 	r_return_val_if_fail (bin, 0);
 
 	if (!bin->phdr) {
-		return 0;
+		return 0; // TODO: should return ut64.max
 	}
 
 	size_t i;
@@ -1826,7 +1824,7 @@ ut64 Elf_(r_bin_elf_get_main_offset)(ELFOBJ *bin) {
 		return UT64_MAX;
 	}
 	// ARM64
-	if (buf[0x18+3] == 0x58 && buf[0x2f] == 0x00) {
+	if (buf[0x18 + 3] == 0x58 && buf[0x2f] == 0x00) {
 		ut32 entry_vaddr = Elf_(r_bin_elf_p2v) (bin, entry);
 		ut32 main_addr = r_read_le32 (&buf[0x30]);
 		if ((main_addr >> 16) == (entry_vaddr >> 16)) {
@@ -2575,7 +2573,6 @@ int Elf_(r_bin_elf_is_big_endian)(ELFOBJ *bin) {
 /* XXX Init dt_strtab? */
 char *Elf_(r_bin_elf_get_rpath)(ELFOBJ *bin) {
 	r_return_val_if_fail (bin, NULL);
-	char *ret;
 	Elf_(Xword) val;
 
 	if (!bin->phdr || !bin->strtab) {
@@ -2594,13 +2591,7 @@ char *Elf_(r_bin_elf_get_rpath)(ELFOBJ *bin) {
 		return NULL;
 	}
 
-	if (!(ret = calloc (1, ELF_STRING_LENGTH))) {
-		return NULL;
-	}
-
-	r_str_ncpy (ret, bin->strtab + val, ELF_STRING_LENGTH);
-
-	return ret;
+	return r_str_ndup (bin->strtab + val, ELF_STRING_LENGTH);
 }
 
 static bool has_valid_section_header(ELFOBJ *bin, size_t pos) {
@@ -2609,8 +2600,14 @@ static bool has_valid_section_header(ELFOBJ *bin, size_t pos) {
 
 static void fix_rva_and_offset_relocable_file(ELFOBJ *bin, RBinElfReloc *r, size_t pos) {
 	if (has_valid_section_header (bin, pos)) {
-		r->rva = bin->shdr[bin->g_sections[pos].info].sh_offset + r->offset;
-		r->rva = Elf_(r_bin_elf_p2v) (bin, r->rva);
+		size_t idx = bin->g_sections[pos].info;
+		if (idx < bin->ehdr.e_shnum) {
+			ut64 pa = bin->shdr[idx].sh_offset + r->offset;
+			r->offset = pa;
+			r->rva = Elf_(r_bin_elf_p2v) (bin, pa);
+		} else {
+			eprintf ("fix_rva_and_offset_reloc..: invalid index\n");
+		}
 	} else {
 		r->rva = r->offset;
 	}
@@ -2719,7 +2716,11 @@ static size_t get_num_relocs_sections(ELFOBJ *bin) {
 }
 
 static size_t get_num_relocs_approx(ELFOBJ *bin) {
-	return get_num_relocs_dynamic (bin) + get_num_relocs_sections (bin);
+	size_t total = get_num_relocs_dynamic (bin) + get_num_relocs_sections (bin);
+	if (total > bin->size) {
+		return bin->size / 2;
+	}
+	return total;
 }
 
 static size_t populate_relocs_record_from_dynamic(ELFOBJ *bin, RBinElfReloc *relocs, size_t pos, size_t num_relocs) {
@@ -2881,15 +2882,14 @@ RBinElfLib* Elf_(r_bin_elf_get_libs)(ELFOBJ *bin) {
 }
 
 static void create_section_from_phdr(ELFOBJ *bin, RBinElfSection *ret, size_t *i, const char *name, ut64 addr, ut64 sz) {
-	if (!addr) {
+	r_return_if_fail (bin && ret && i);
+	if (!addr || addr == UT64_MAX) {
 		return;
 	}
-
 	ret[*i].offset = Elf_(r_bin_elf_v2p_new) (bin, addr);
 	ret[*i].rva = addr;
 	ret[*i].size = sz;
-	strncpy (ret[*i].name, name, R_ARRAY_SIZE (ret[*i].name) - 1);
-	ret[*i].name[R_ARRAY_SIZE (ret[*i].name) - 1] = '\0';
+	r_str_ncpy (ret[*i].name, name, R_ARRAY_SIZE (ret[*i].name) - 1);
 	ret[*i].last = 0;
 	*i = *i + 1;
 }
@@ -2904,7 +2904,6 @@ static RBinElfSection *get_sections_from_phdr(ELFOBJ *bin) {
 	if (!bin->ehdr.e_phnum) {
 		return NULL;
 	}
-
 	if (bin->dyn_info.dt_rel != R_BIN_ELF_ADDR_MAX) {
 		reldyn = bin->dyn_info.dt_rel;
 		num_sections++;
@@ -3647,11 +3646,11 @@ static RBinElfSymbol* Elf_(_r_bin_elf_get_symbols_imports)(ELFOBJ *bin, int type
 					int maxsize = R_MIN (r_buf_size (bin->b), strtab_section->sh_size);
 					if (is_section_local_sym (bin, &sym[k])) {
 						const char *shname = &bin->shstrtab[bin->shdr[sym[k].st_shndx].sh_name];
-						r_str_ncpy (ret[ret_ctr].name, shname, ELF_STRING_LENGTH);
+						r_str_ncpy (ret[ret_ctr].name, shname, ELF_STRING_LENGTH - 1);
 					} else if (st_name <= 0 || st_name >= maxsize) {
 						ret[ret_ctr].name[0] = 0;
 					} else {
-						r_str_ncpy(ret[ret_ctr].name, &strtab[st_name], ELF_STRING_LENGTH);
+						r_str_ncpy(ret[ret_ctr].name, &strtab[st_name], ELF_STRING_LENGTH - 1);
 						ret[ret_ctr].type = type2str (bin, &ret[ret_ctr], &sym[k]);
 
 						if (ht_pp_find (symbol_map, &ret[ret_ctr], NULL)) {
@@ -3661,7 +3660,7 @@ static RBinElfSymbol* Elf_(_r_bin_elf_get_symbols_imports)(ELFOBJ *bin, int type
 					}
 				}
 				ret[ret_ctr].ordinal = k;
-				ret[ret_ctr].name[ELF_STRING_LENGTH - 2] = '\0';
+				ret[ret_ctr].name[ELF_STRING_LENGTH - 1] = '\0';
 				fill_symbol_bind_and_type (bin, &ret[ret_ctr], &sym[k]);
 				ret[ret_ctr].is_sht_null = is_sht_null;
 				ret[ret_ctr].is_vaddr = is_vaddr;
@@ -3868,8 +3867,9 @@ ut64 Elf_(r_bin_elf_p2v) (ELFOBJ *bin, ut64 paddr) {
 }
 
 /* Deprecated temporarily. Use r_bin_elf_v2p_new in new code for now. */
-ut64 Elf_(r_bin_elf_v2p) (ELFOBJ *bin, ut64 vaddr) {
-	r_return_val_if_fail (bin, 0);
+ut64 Elf_(r_bin_elf_v2p)(ELFOBJ *bin, ut64 vaddr) {
+	r_return_val_if_fail (bin, 0); // UT64_MAX or vaddr?
+	// r_return_val_if_fail (bin, UT64_MAX);
 	if (!bin->phdr) {
 		if (is_bin_etrel (bin)) {
 			return vaddr - bin->baddr;

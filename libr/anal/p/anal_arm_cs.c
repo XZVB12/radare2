@@ -2817,8 +2817,8 @@ r6,r5,r4,3,sp,[*],12,sp,+=
 			if (REGBASE(1) == ARM_REG_PC) {
 				op->refptr = 4;
 				op->ptr = addr + pcdelta + MEMDISP(1);
-				r_strbuf_appendf (&op->esil, "0x%"PFMT64x",2,2,%s,>>,<<,+,0xffffffff,&,[4],0x%x,&,%s,=",
-					(ut64)MEMDISP(1), pc, mask, REG(0));
+				r_strbuf_appendf (&op->esil, "0x%"PFMT64x",2,2,%s,%d,+,>>,<<,+,0xffffffff,&,[4],0x%x,&,%s,=",
+					(ut64)MEMDISP(1), pc, pcdelta, mask, REG(0));
 			} else {
 				int disp = MEMDISP(1);
 				// not refptr, because we can't grab the reg value statically op->refptr = 4;
@@ -4159,8 +4159,8 @@ static void op_fillval (RAnal *anal, RAnalOp *op, csh handle, cs_insn *insn, int
 	case R_ANAL_OP_TYPE_ROR:
 	case R_ANAL_OP_TYPE_ROL:
 	case R_ANAL_OP_TYPE_CAST:
-#if CS_API_MAJOR > 3
 		for (i = 1; i < count; i++) {
+#if CS_API_MAJOR > 3
 			if (bits == 64) {
 				cs_arm64_op arm64op = INSOP64 (i);
 				if (arm64op.access == CS_AC_WRITE) {
@@ -4173,9 +4173,9 @@ static void op_fillval (RAnal *anal, RAnalOp *op, csh handle, cs_insn *insn, int
 					continue;
 				}
 			}
+#endif
 			break;
 		}
-#endif
 		for (j = 0; j < 3; j++, i++) {
 			set_src_dst (op->src[j], anal->reg, &handle, insn, i, bits);
 		}
@@ -4780,7 +4780,8 @@ static char *get_reg_profile(RAnal *anal) {
 		"fpu	q15	.128	308	0\n"
 		;
 	}
-	return strdup (p);
+	const char *snReg = (!strcmp (anal->os, "android") || !strcmp (anal->os, "linux"))? "x8": "x16";
+	return r_str_newf (p, snReg);
 }
 
 static int archinfo(RAnal *anal, int q) {

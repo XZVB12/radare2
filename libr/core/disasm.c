@@ -205,6 +205,7 @@ typedef struct {
 	const char *color_flow2;
 	const char *color_flag;
 	const char *color_label;
+	const char *color_offset;
 	const char *color_other;
 	const char *color_nop;
 	const char *color_bin;
@@ -312,7 +313,7 @@ static void ds_control_flow_comments(RDisasmState *ds);
 static void ds_adistrick_comments(RDisasmState *ds);
 static void ds_print_comments_right(RDisasmState *ds);
 static void ds_show_comments_right(RDisasmState *ds);
-static void ds_show_flags(RDisasmState *ds);
+static void ds_show_flags(RDisasmState *ds, bool overlapped);
 static void ds_update_ref_lines(RDisasmState *ds);
 static int ds_disassemble(RDisasmState *ds, ut8 *buf, int len);
 static void ds_print_lines_right(RDisasmState *ds);
@@ -439,6 +440,12 @@ R_API const char *r_core_get_section_name(RCore *core, ut64 addr) {
 	static char section[128] = "";
 	static ut64 oaddr = UT64_MAX;
 	if (oaddr == addr) {
+		return section;
+	}
+	if (r_config_get_b (core->config, "cfg.debug")) {
+		char *rv = r_core_cmd_strf (core, "dmi.@0x%08"PFMT64x, addr);
+		r_str_replace_char (rv, '\n', ' ');
+		r_str_ncpy (section, rv, sizeof (section) - 1);
 		return section;
 	}
 	RBinObject *bo = r_bin_cur_object (core->bin);
@@ -574,6 +581,7 @@ static RDisasmState * ds_init(RCore *core) {
 	ds->color_flow2 = P(flow2): Color_BLUE;
 	ds->color_flag = P(flag): Color_CYAN;
 	ds->color_label = P(label): Color_CYAN;
+	ds->color_offset = P(offset): Color_GREEN;
 	ds->color_other = P(other): Color_WHITE;
 	ds->color_nop = P(nop): Color_BLUE;
 	ds->color_bin = P(bin): Color_YELLOW;
@@ -1445,19 +1453,19 @@ static void ds_atabs_option(RDisasmState *ds) {
 	if (!ds || !ds->atabs) {
 		return;
 	}
-	int bufasm_len = r_strbuf_length (&ds->asmop.buf_asm);
-	int size = bufasm_len * (ds->atabs + 1) * 4;
+	size_t bufasm_len = r_strbuf_length (&ds->asmop.buf_asm);
+	size_t size = (bufasm_len * (ds->atabs + 1)) + 8;
 	if (size < 1 || size < bufasm_len) {
 		return;
 	}
 	b = malloc (size + 1);
+	if (!b) {
+		return;
+	}
 	if (ds->opstr) {
 		strcpy (b, ds->opstr);
 	} else {
 		strcpy (b, r_asm_op_get_asm (&ds->asmop));
-	}
-	if (!b) {
-		return;
 	}
 	free (ds->opstr);
 	ds->opstr = b;
@@ -1502,6 +1510,7 @@ static void ds_atabs_option(RDisasmState *ds) {
 static int handleMidFlags(RCore *core, RDisasmState *ds, bool print) {
 	int i;
 
+	ds->midflags = r_config_get_i (core->config, "asm.flags.middle");
 	ds->hasMidflag = false;
 	if (ds->midcursor && core->print->cur != -1) {
 		ut64 cur = core->offset + core->print->cur;
@@ -1511,10 +1520,17 @@ static int handleMidFlags(RCore *core, RDisasmState *ds, bool print) {
 			return cur - from;
 		}
 	}
+	if (ds->midflags == R_MIDFLAGS_HIDE) {
+		return 0;
+	}
+
 	for (i = 1; i < ds->oplen; i++) {
 		RFlagItem *fi = r_flag_get_i (core->flags, ds->at + i);
 		if (fi && fi->name) {
-			if (ds->midflags == 2 && ((fi->name[0] == '$') || (fi->realname && fi->realname[0] == '$'))) {
+			if (r_anal_get_block_at (core->anal, ds->at)) {
+				ds->midflags = ds->midflags? R_MIDFLAGS_SHOW: R_MIDFLAGS_HIDE;
+			}
+			if (ds->midflags == R_MIDFLAGS_REALIGN && ((fi->name[0] == '$') || (fi->realname && fi->realname[0] == '$'))) {
 				i = 0;
 			} else if (!strncmp (fi->name, "hit.", 4)) { // use search.prefix ?
 				i = 0;
@@ -1584,9 +1600,7 @@ static void ds_print_show_cursor(RDisasmState *ds) {
 		ds->cursor >= ds->index &&
 		ds->cursor < (ds->index + ds->asmop.size);
 	RBreakpointItem *p = r_bp_get_at (core->dbg->bp, ds->at);
-	if (ds->midflags) {
-		(void)handleMidFlags (core, ds, false);
-	}
+	(void)handleMidFlags (core, ds, false);
 	if (ds->midbb) {
 		(void)handleMidBB (core, ds);
 	}
@@ -2202,7 +2216,7 @@ static void __preline_flag(RDisasmState *ds, RFlagItem *flag) {
 }
 
 #define printPre (outline || !*comma)
-static void ds_show_flags(RDisasmState *ds) {
+static void ds_show_flags(RDisasmState *ds, bool overlapped) {
 	//const char *beginch;
 	RFlagItem *flag;
 	RListIter *iter;
@@ -2224,11 +2238,12 @@ static void ds_show_flags(RDisasmState *ds) {
 	bool docolon = true;
 	int nth = 0;
 	r_list_foreach (uniqlist, iter, flag) {
-		if (f && f->addr == flag->offset && !strcmp (flag->name, f->name)) {
+		if (!overlapped && f && f->addr == flag->offset && !strcmp (flag->name, f->name)) {
+			// do not show non-overlapped flags that have the same name as the function
 			// do not show flags that have the same name as the function
 			continue;
 		}
-		bool no_fcn_lines = (f && f->addr == flag->offset);
+		bool no_fcn_lines = (!overlapped && f && f->addr == flag->offset);
 		if (ds->maxflags && count >= ds->maxflags) {
 			if (printPre) {
 				ds_pre_xrefs (ds, no_fcn_lines);
@@ -2272,10 +2287,11 @@ static void ds_show_flags(RDisasmState *ds) {
 			}
 		}
 
+		bool hasColor = false;
+		char *color = NULL;
 		if (ds->show_color) {
-			bool hasColor = false;
 			if (flag->color) {
-				char *color = r_cons_pal_parse (flag->color, NULL);
+				color = r_cons_pal_parse (flag->color, NULL);
 				if (color) {
 					r_cons_strcat (color);
 					free (color);
@@ -2327,6 +2343,11 @@ static void ds_show_flags(RDisasmState *ds) {
 					r_str_ansi_filter (name, NULL, NULL, -1);
 					if (!ds->flags_inline || nth == 0) {
 						r_cons_printf (FLAG_PREFIX);
+						if (overlapped) {
+							r_cons_printf ("%s(0x%08"PFMT64x")%s ",
+									ds->show_color ? ds->color_offset : "", ds->at,
+									ds->show_color ? (hasColor ? color : ds->color_flag): "");
+						}
 					}
 					if (outline) {
 						r_cons_printf ("%s:", name);
@@ -2351,6 +2372,7 @@ static void ds_show_flags(RDisasmState *ds) {
 		} else {
 			comma = ", ";
 		}
+		R_FREE (color);
 		nth++;
 	}
 	if (!outline && *comma) {
@@ -2452,12 +2474,12 @@ static int ds_disassemble(RDisasmState *ds, ut8 *buf, int len) {
 	}
 	// handle meta here //
 	if (!ds->asm_meta) {
-		int i = 0;
+		size_t i = 0;
 		if (meta && meta_size > 0 && meta->type != R_META_TYPE_HIDE) {
 			// XXX this is just noise. should be rewritten
 			switch (meta->type) {
 			case R_META_TYPE_DATA:
-				if (meta->str) {
+				if (!R_STR_ISEMPTY (meta->str)) {
 					r_cons_printf (".data: %s\n", meta->str);
 				}
 				i += meta_size;
@@ -2491,6 +2513,18 @@ static int ds_disassemble(RDisasmState *ds, ut8 *buf, int len) {
 				char *op_hex = r_asm_op_get_hex (&ds->asmop);
 				r_asm_op_set_asm (&ds->asmop, sdb_fmt (".hex %s%s", op_hex, tail));
 				free (op_hex);
+				bool be = ds->core->print->big_endian;
+				switch (meta_size) {
+				case 2:
+					ds->analop.val = r_read_ble16 (buf, be);
+					break;
+				case 4:
+					ds->analop.val = r_read_ble32 (buf, be);
+					break;
+				case 8:
+					ds->analop.val = r_read_ble64 (buf, be);
+					break;
+				}
 				break;
 			}
 			}
@@ -2637,7 +2671,7 @@ static void ds_print_lines_left(RDisasmState *ds) {
 		char *str = NULL;
 		if (ds->show_section_perm) {
 			// iosections must die, this should be rbin_section_get
-			RIOMap *map = r_io_map_get (core->io, ds->at);
+			RIOMap *map = r_io_map_get_at (core->io, ds->at);
 			str = strdup (map? r_str_rwx_i (map->perm): "---");
 		}
 		if (ds->show_section_name) {
@@ -2841,7 +2875,7 @@ static void ds_adistrick_comments(RDisasmState *ds) {
 }
 
 // TODO move into RAnal.meta
-static bool ds_print_data_type(RDisasmState *ds, const ut8 *buf, int ib, int size) {
+static bool ds_print_data_type(RDisasmState *ds, const ut8 *obuf, int ib, int size) {
 	RCore *core = ds->core;
 	const char *type = NULL;
 	char msg[64];
@@ -2854,6 +2888,8 @@ static bool ds_print_data_type(RDisasmState *ds, const ut8 *buf, int ib, int siz
 	case 8: type = isSigned? ".int64": ".qword"; break;
 	default: return false;
 	}
+	ut8 buf[sizeof(ut64)] = {0};
+	memcpy (buf, obuf, R_MIN (sizeof (ut64), size));
 	// adjust alignment
 	ut64 n = r_read_ble (buf, core->print->big_endian, size * 8);
 	if (r_config_get_i (core->config, "asm.marks")) {
@@ -3036,25 +3072,30 @@ static bool ds_print_meta_infos(RDisasmState *ds, ut8* buf, int len, int idx, in
 			ds->oplen = mi_size - delta;
 			core->print->flags &= ~R_PRINT_FLAGS_HEADER;
 			int size = mi_size;
-			if (!ds_print_data_type (ds, buf + idx, ds->hint? ds->hint->immbase: 0, size)) {
-				if (size > delta) {
-					r_cons_printf ("hex size=%d delta=%d\n", size , delta);
-					int remaining = size - delta;
-					remaining = R_MAX (remaining, 0);
-					if (remaining > (len - delta)) {
-						ut8 *b = calloc (1, size - delta);
-						memcpy (b, buf, len);
-						r_print_hexdump (core->print, ds->at,
-								b + idx, remaining, 16, 1, 1);
-						free (b);
+			ut8 *b = malloc (mi_size);
+			if (b) {
+				r_io_read_at (core->io, ds->at, b, mi_size);
+				if (size > 0 && !ds_print_data_type (ds, b, ds->hint? ds->hint->immbase: 0, mi_size)) {
+					if (size > delta) {
+						r_cons_printf ("hex size=%d delta=%d\n", size , delta);
+						int remaining = size - delta;
+						remaining = R_MAX (remaining, 0);
+						if (remaining > (len - delta)) {
+							ut8 *b = calloc (1, size - delta);
+							memcpy (b, buf, len);
+							r_print_hexdump (core->print, ds->at,
+									b + idx, remaining, 16, 1, 1);
+							free (b);
+						} else {
+							r_print_hexdump (core->print, ds->at,
+									buf + idx, remaining, 16, 1, 1);
+						}
 					} else {
-						r_print_hexdump (core->print, ds->at,
-							buf + idx, remaining, 16, 1, 1);
+						r_cons_printf ("hex size=%d hexlen=%d delta=%d",
+								size, hexlen, delta);
 					}
-				} else {
-					r_cons_printf ("hex size=%d hexlen=%d delta=%d",
-						size, hexlen, delta);
 				}
+				free (b);
 			}
 			core->print->flags |= R_PRINT_FLAGS_HEADER;
 			ds->asmop.size = (int)size - (node->start - ds->at);
@@ -4219,15 +4260,15 @@ static void ds_print_relocs(RDisasmState *ds) {
 	}
 }
 
-static int mymemwrite0(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len) {
-	return 0;
+static bool mymemwrite0(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len) {
+	return false;
 }
 
-static int mymemwrite1(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len) {
-	return 1;
+static bool mymemwrite1(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len) {
+	return true;
 }
 
-static int mymemwrite2(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len) {
+static bool mymemwrite2(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len) {
 	return (addr >= emustack_min && addr < emustack_max);
 }
 
@@ -4249,7 +4290,7 @@ static void ssa_set(RAnalEsil *esil, const char *reg) {
 }
 
 #define R_DISASM_MAX_STR 512
-static int myregread(RAnalEsil *esil, const char *name, ut64 *res, int *size) {
+static bool myregread(RAnalEsil *esil, const char *name, ut64 *res, int *size) {
 	RDisasmState *ds = esil->user;
 	if (ds && ds->show_emu_ssa) {
 		if (!isdigit ((unsigned char)*name)) {
@@ -4258,20 +4299,20 @@ static int myregread(RAnalEsil *esil, const char *name, ut64 *res, int *size) {
 			free (r);
 		}
 	}
-	return 0;
+	return false;
 }
 
-static int myregwrite(RAnalEsil *esil, const char *name, ut64 *val) {
+static bool myregwrite(RAnalEsil *esil, const char *name, ut64 *val) {
 	char str[64], *msg = NULL;
 	ut32 *n32 = (ut32*)str;
 	RDisasmState *ds = esil->user;
 	if (!ds) {
-		return 0;
+		return false;
 	}
 	if (!ds->show_emu_strlea && ds->analop.type == R_ANAL_OP_TYPE_LEA) {
 		// useful for ARM64
 		// reduce false positives in emu.str=true when loading strings via adrp+add
-		return 0;
+		return false;
 	}
 	ds->esil_likely = true;
 	if (ds->show_emu_ssa) {
@@ -4279,10 +4320,10 @@ static int myregwrite(RAnalEsil *esil, const char *name, ut64 *val) {
 		char *r = ssa_get (esil, name);
 		ds_comment_esil (ds, true, false, ">%s", r);
 		free (r);
-		return 0;
+		return false;
 	}
 	if (!ds->show_slow) {
-		return 0;
+		return false;
 	}
 	memset (str, 0, sizeof (str));
 	if (*val) {
@@ -4412,7 +4453,7 @@ static int myregwrite(RAnalEsil *esil, const char *name, ut64 *val) {
 		}
 	}
 	free (msg);
-	return 0;
+	return false;
 }
 
 static void ds_pre_emulation(RDisasmState *ds) {
@@ -4604,7 +4645,7 @@ static void ds_print_esil_anal(RDisasmState *ds) {
 	RCore *core = ds->core;
 	RAnalEsil *esil = core->anal->esil;
 	const char *pc;
-	int (*hook_mem_write)(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len) = NULL;
+	bool (*hook_mem_write)(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len) = NULL;
 	int i, nargs;
 	ut64 at = r_core_pava (core, ds->at);
 	RConfigHold *hc = r_config_hold_new (core->config);
@@ -5376,19 +5417,18 @@ toro:
 		if (ds->at >= addr) {
 			r_print_set_rowoff (core->print, ds->lines, ds->at - addr, calc_row_offsets);
 		}
-		if (ds->midflags) {
-			skip_bytes_flag = handleMidFlags (core, ds, true);
-			if (skip_bytes_flag && ds->midflags == R_MIDFLAGS_SHOW) {
-				ds->at += skip_bytes_flag;
-			}
+		skip_bytes_flag = handleMidFlags (core, ds, true);
+		if (ds->midbb) {
+			skip_bytes_bb = handleMidBB(core, ds);
 		}
 		ds_show_xrefs (ds);
-		ds_show_flags (ds);
-		if (skip_bytes_flag && ds->midflags == R_MIDFLAGS_SHOW) {
+		ds_show_flags (ds, false);
+		if (skip_bytes_flag && ds->midflags == R_MIDFLAGS_SHOW &&
+				(!ds->midbb || !skip_bytes_bb || skip_bytes_bb > skip_bytes_flag)) {
+			ds->at += skip_bytes_flag;
+			ds_show_xrefs(ds);
+			ds_show_flags(ds, true);
 			ds->at -= skip_bytes_flag;
-		}
-		if (ds->midbb) {
-			skip_bytes_bb = handleMidBB (core, ds);
 		}
 		if (ds->pdf) {
 			static bool sparse = false;
@@ -5700,9 +5740,7 @@ toro:
 		ret = r_asm_disassemble (core->rasm, &ds->asmop,
 			buf + addrbytes * i, nb_bytes - addrbytes * i);
 		ds->oplen = ret;
-		if (ds->midflags) {
-			skip_bytes_flag = handleMidFlags (core, ds, true);
-		}
+		skip_bytes_flag = handleMidFlags (core, ds, true);
 		if (ds->midbb) {
 			skip_bytes_bb = handleMidBB (core, ds);
 		}
@@ -6041,9 +6079,7 @@ R_API int r_core_print_disasm_json(RCore *core, ut64 addr, ut8 *buf, int nb_byte
 		}
 		ds->oplen = r_asm_op_get_size (&asmop);
 		ds->at = at;
-		if (ds->midflags) {
-			skip_bytes_flag = handleMidFlags (core, ds, false);
-		}
+		skip_bytes_flag = handleMidFlags (core, ds, false);
 		if (ds->midbb) {
 			skip_bytes_bb = handleMidBB (core, ds);
 		}
@@ -6104,6 +6140,21 @@ R_API int r_core_print_disasm_json(RCore *core, ut64 addr, ut8 *buf, int nb_byte
 		// wanted the numerical values of the type information
 		pj_kn (pj, "type_num", (ut64)(ds->analop.type & UT64_MAX));
 		pj_kn (pj, "type2_num", (ut64)(ds->analop.type2 & UT64_MAX));
+		// addr addrline info here
+		{
+			int line;
+			char file[1024];
+			bool ret = r_bin_addr2line (core->bin, at, file, sizeof (file) - 1, &line);
+			if (!ret) {
+				ret = r_bin_addr2line2 (core->bin, at, file, sizeof (file) - 1, &line);
+			}
+			if (ret) {
+				pj_ko (pj, "addrline");
+				pj_ks (pj, "file", file);
+				pj_kn (pj, "line", line);
+				pj_end (pj);
+			}
+		}
 		// handle switch statements
 		if (ds->analop.switch_op && r_list_length (ds->analop.switch_op->cases) > 0) {
 			// XXX - the java caseop will still be reported in the assembly,
@@ -6401,33 +6452,33 @@ toro:
 			r_print_offset_sg (core->print, at, 0, show_offseg, seggrn, show_offdec, 0, NULL);
 		}
 		ut64 meta_start = at;
-		ut64 meta_size;
+		ut64 meta_size = 0;
 		meta = r_meta_get_at (core->anal, meta_start, R_META_TYPE_ANY, &meta_size);
 		if (meta) {
 			switch (meta->type) {
 			case R_META_TYPE_DATA:
-				//r_cons_printf (".data: %s\n", meta->str);
 				i += meta_size;
 				{
-					int idx = i;
 					ut64 at = core->offset + i;
-					int hexlen = nb_bytes - idx;
+					int hexlen = nb_bytes - i;
 					int delta = at - meta_start;
 					if (meta_size < hexlen) {
 						hexlen = meta_size;
 					}
-					// int oplen = meta->size - delta;
 					core->print->flags &= ~R_PRINT_FLAGS_HEADER;
-					// TODO do not pass a copy in parameter buf that is possibly to small for this
-					// print operation
-					int size = R_MIN (meta_size, nb_bytes - idx);
+					int size = R_MIN (meta_size, nb_bytes - i);
 					RDisasmState ds = {0};
 					ds.core = core;
-					if (!ds_print_data_type (&ds, buf + i, 0, size)) {
-						r_cons_printf ("hex length=%d delta=%d\n", size, delta);
-						r_print_hexdump (core->print, at, buf + idx, hexlen - delta, 16, 1, 1);
-					} else {
-						r_cons_newline ();
+					ut8 *b = malloc (meta_size);
+					if (b) {
+						r_io_read_at (core->io, at, b, meta_size);
+						if (size > 0 && !ds_print_data_type (&ds, b, 0, meta_size)) {
+							r_cons_printf ("hex length=%d delta=%d\n", size, delta);
+							r_print_hexdump (core->print, at, buf + i, hexlen - delta, 16, 1, 1);
+						} else {
+							r_cons_newline ();
+						}
+						free (b);
 					}
 					ret = true;
 				}
@@ -6616,7 +6667,7 @@ R_API int r_core_disasm_pde(RCore *core, int nb_opcodes, int mode) {
 	}
 	if (!core->anal->esil) {
 		r_core_cmd0 (core, "aei");
-		if (!r_config_get_i (core->config, "cfg.debug")) {
+		if (!r_config_get_b (core->config, "cfg.debug")) {
 			r_core_cmd0 (core, "aeim");
 		}
 	}

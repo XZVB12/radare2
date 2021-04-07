@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2017-2020 - condret, MaskRay */
+/* radare2 - LGPL - Copyright 2017-2021 - condret, MaskRay */
 
 #include <r_io.h>
 #include <stdlib.h>
@@ -52,7 +52,7 @@ R_API RIOMap *r_io_map_new(RIO *io, int fd, int perm, ut64 delta, ut64 addr, ut6
 }
 
 R_API bool r_io_map_remap(RIO *io, ut32 id, ut64 addr) {
-	RIOMap *map = r_io_map_resolve (io, id);
+	RIOMap *map = r_io_map_get (io, id);
 	if (map) {
 		ut64 size = r_io_map_size (map);
 		r_io_map_set_begin (map, addr);
@@ -69,7 +69,7 @@ R_API bool r_io_map_remap(RIO *io, ut32 id, ut64 addr) {
 R_API bool r_io_map_remap_fd(RIO *io, int fd, ut64 addr) {
 	RIOMap *map;
 	bool retval = false;
-	RList *maps = r_io_map_get_for_fd (io, fd);
+	RList *maps = r_io_map_get_by_fd (io, fd);
 	if (maps) {
 		map = r_list_get_n (maps, 0);
 		if (map) {
@@ -112,10 +112,10 @@ R_API bool r_io_map_exists(RIO *io, RIOMap *map) {
 
 // check if a map with specified id exists
 R_API bool r_io_map_exists_for_id(RIO* io, ut32 id) {
-	return r_io_map_resolve (io, id) != NULL;
+	return r_io_map_get (io, id) != NULL;
 }
 
-R_API RIOMap* r_io_map_resolve(RIO *io, ut32 id) {
+R_API RIOMap* r_io_map_get(RIO *io, ut32 id) {
 	r_return_val_if_fail (io && id, false);
 	void **it;
 	r_pvector_foreach (&io->maps, it) {
@@ -163,14 +163,14 @@ R_API RIOMap* r_io_map_get_paddr(RIO* io, ut64 paddr) {
 }
 
 // gets first map where addr fits in
-R_API RIOMap *r_io_map_get(RIO* io, ut64 addr) {
+R_API RIOMap *r_io_map_get_at(RIO* io, ut64 addr) {
 	r_return_val_if_fail (io, NULL);
 	return r_skyline_get (&io->map_skyline, addr);
 }
 
 R_API bool r_io_map_is_mapped(RIO* io, ut64 addr) {
 	r_return_val_if_fail (io, false);
-	return (bool)r_io_map_get (io, addr);
+	return (bool)r_io_map_get_at (io, addr);
 }
 
 R_API void r_io_map_reset(RIO* io) {
@@ -346,6 +346,9 @@ R_API ut64 r_io_map_next_available(RIO* io, ut64 addr, ut64 size, ut64 load_alig
 		// memory mapping with multiple files. infinite loop ahead?
 		if ((r_io_map_begin (map) <= next_addr && next_addr < to) || r_io_map_contain (map, end_addr)) {
 			next_addr = to + (load_align - (to % load_align)) % load_align;
+			if (next_addr == addr) {
+				return UT64_MAX;
+			}
 			return r_io_map_next_available (io, next_addr, size, load_align);
 		}
 		break;
@@ -371,7 +374,7 @@ R_API ut64 r_io_map_next_address(RIO* io, ut64 addr) {
 	return lowest;
 }
 
-R_API RList* r_io_map_get_for_fd(RIO* io, int fd) {
+R_API RList* r_io_map_get_by_fd(RIO* io, int fd) {
 	RList* map_list = r_list_newf (NULL);
 	if (!map_list) {
 		return NULL;
@@ -388,7 +391,7 @@ R_API RList* r_io_map_get_for_fd(RIO* io, int fd) {
 
 R_API bool r_io_map_resize(RIO *io, ut32 id, ut64 newsize) {
 	RIOMap *map;
-	if (!newsize || !(map = r_io_map_resolve (io, id))) {
+	if (!newsize || !(map = r_io_map_get (io, id))) {
 		return false;
 	}
 	ut64 addr = r_io_map_begin (map);
@@ -406,7 +409,7 @@ R_API bool r_io_map_resize(RIO *io, ut32 id, ut64 newsize) {
 // XXX this function is buggy and doesnt works as expected, but i need it for a PoC for now
 R_API ut64 r_io_map_location(RIO *io, ut64 size) {
 	ut64 base = (io->bits == 64)? 0x60000000000LL: 0x60000000;
-	while (r_io_map_get (io, base)) {
+	while (r_io_map_get_at (io, base)) {
 		base += 0x200000;
 	}
 	return base;

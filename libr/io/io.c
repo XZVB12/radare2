@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2008-2019 - condret, pancake, alvaro_fe */
+/* radare2 - LGPL - Copyright 2008-2021 - condret, pancake, alvaro_fe */
 
 #include <r_io.h>
 #include <sdb.h>
@@ -277,6 +277,19 @@ static bool r_io_vwrite_at(RIO* io, ut64 vaddr, const ut8* buf, int len) {
 	return on_map_skyline (io, vaddr, (ut8*)buf, len, R_PERM_W, fd_write_at_wrap, false);
 }
 
+static bool internal_r_io_read_at(RIO *io, ut64 addr, ut8 *buf, int len) {
+	if (len < 1) {
+		return false;
+	}
+	bool ret = (io->va)
+		? r_io_vread_at_mapped (io, addr, buf, len)
+		: r_io_pread_at (io, addr, buf, len) > 0;
+	if (io->cached & R_PERM_R) {
+		(void)r_io_cache_read (io, addr, buf, len);
+	}
+	return ret;
+}
+
 // Deprecated, use either r_io_read_at_mapped or r_io_nread_at instead.
 // For virtual mode, returns true if all reads on mapped regions are successful
 // and complete.
@@ -287,13 +300,27 @@ R_API bool r_io_read_at(RIO *io, ut64 addr, ut8 *buf, int len) {
 	if (len == 0) {
 		return false;
 	}
-	bool ret = (io->va)
-		? r_io_vread_at_mapped (io, addr, buf, len)
-		: r_io_pread_at (io, addr, buf, len) > 0;
-	if (io->cached & R_PERM_R) {
-		(void)r_io_cache_read (io, addr, buf, len);
+	if (io->mask) {
+		ut64 p = addr;
+		ut8 *b = buf;
+		size_t q = 0;
+		while (q < len) {
+			p &= io->mask;
+			size_t sz = io->mask - p + 1;
+			size_t left = len - q;
+			if (sz > left) {
+				sz = left;
+			}
+			if (!internal_r_io_read_at (io, p, buf + q, sz)) {
+				return false;
+			}
+			q += sz;
+			b += sz;
+			p = 0;
+		}
+		return true;
 	}
-	return ret;
+	return internal_r_io_read_at (io, addr, buf, len);
 }
 
 // Returns true iff all reads on mapped regions are successful and complete.
@@ -402,7 +429,7 @@ R_API char *r_io_system(RIO* io, const char* cmd) {
 
 R_API bool r_io_resize(RIO* io, ut64 newsize) {
 	if (io) {
-		RList *maps = r_io_map_get_for_fd (io, io->desc->fd);
+		RList *maps = r_io_map_get_by_fd (io, io->desc->fd);
 		RIOMap *current_map;
 		RListIter *iter;
 		ut64 fd_size = r_io_fd_size (io, io->desc->fd);
@@ -493,7 +520,7 @@ R_API ut64 r_io_p2v(RIO *io, ut64 pa) {
 }
 
 R_API ut64 r_io_v2p(RIO *io, ut64 va) {
-	RIOMap *map = r_io_map_get (io, va);
+	RIOMap *map = r_io_map_get_at (io, va);
 	if (map) {
 		st64 delta = va - r_io_map_begin (map);
 		return r_io_map_begin (map) + map->delta + delta;
@@ -528,10 +555,10 @@ R_API void r_io_bind(RIO *io, RIOBind *bnd) {
 	bnd->fd_write_at = r_io_fd_write_at;
 	bnd->fd_is_dbg = r_io_fd_is_dbg;
 	bnd->fd_get_name = r_io_fd_get_name;
-	bnd->fd_get_map = r_io_map_get_for_fd;
+	bnd->fd_get_map = r_io_map_get_by_fd;
 	bnd->fd_remap = r_io_map_remap_fd;
 	bnd->is_valid_offset = r_io_is_valid_offset;
-	bnd->map_get = r_io_map_get;
+	bnd->map_get_at = r_io_map_get_at;
 	bnd->map_get_paddr = r_io_map_get_paddr;
 	bnd->addr_is_mapped = r_io_addr_is_mapped;
 	bnd->map_add = r_io_map_add;

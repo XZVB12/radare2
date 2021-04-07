@@ -872,7 +872,7 @@ static RSignBytes *r_sign_fcn_bytes(RAnal *a, RAnalFunction *fcn) {
 			size_t rsize = bb->size;
 
 			// bounds check
-			if (delta > size) {
+			if (delta >= size) {
 				break;
 			}
 			if (size - delta < rsize) {
@@ -2675,7 +2675,7 @@ R_API bool r_sign_save(RAnal *a, const char *file) {
 	r_return_val_if_fail (a && file, false);
 
 	if (sdb_isempty (a->sdb_zigns)) {
-		eprintf ("WARNING: no zignatures to save\n");
+		eprintf ("Warning: no zignatures to save\n");
 		return false;
 	}
 

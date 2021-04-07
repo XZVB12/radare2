@@ -279,7 +279,7 @@ static ut64 numget(RCore *core, const char *k) {
 }
 
 static bool __isMapped(RCore *core, ut64 addr, int perm) {
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		// RList *maps = core->dbg->maps;
 		RDebugMap *map = NULL;
 		RListIter *iter = NULL;
@@ -302,7 +302,7 @@ static bool __isMapped(RCore *core, ut64 addr, int perm) {
 }
 
 static bool __syncDebugMaps(RCore *core) {
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		return r_debug_map_sync (core->dbg);
 	}
 	return false;
@@ -687,7 +687,7 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 					break;
 				}
 				*ptr = 0;
-				if (r_config_get_i (core->config, "cfg.debug")) {
+				if (r_config_get_b (core->config, "cfg.debug")) {
 					if (r_debug_reg_sync (core->dbg, R_REG_TYPE_GPR, false)) {
 						RRegItem *r = r_reg_get (core->dbg->reg, bptr, -1);
 						if (r) {
@@ -746,7 +746,7 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 		case 'M': { // $M map address
 				ut64 lower = UT64_MAX;
 				ut64 size = 0LL;
-				RIOMap *map = r_io_map_get (core->io, core->offset);
+				RIOMap *map = r_io_map_get_at (core->io, core->offset);
 				if (map) {
 					lower = r_io_map_begin (map);
 					size = r_io_map_size (map);
@@ -1123,7 +1123,7 @@ static const char *radare_argv[] = {
 	NULL
 };
 
-static void autocomplete_mount_point (RLineCompletion *completion, RCore *core, const char *path) {
+static void autocomplete_mount_point(RLineCompletion *completion, RCore *core, const char *path) {
 	RFSRoot *r;
 	RListIter *iter;
 	r_list_foreach (core->fs->roots, iter, r) {
@@ -1568,7 +1568,7 @@ static void autocomplete_flagspaces(RCore *core, RLineCompletion *completion, co
 	}
 }
 
-static void autocomplete_functions (RCore *core, RLineCompletion *completion, const char* str) {
+static void autocomplete_functions(RCore *core, RLineCompletion *completion, const char* str) {
 	r_return_if_fail (str);
 	RListIter *iter;
 	RAnalFunction *fcn;
@@ -1579,6 +1579,23 @@ static void autocomplete_functions (RCore *core, RLineCompletion *completion, co
 			r_line_completion_push (completion, name);
 		}
 		free (name);
+	}
+}
+
+static void autocomplete_vars(RCore *core, RLineCompletion *completion, const char* str) {
+	r_return_if_fail (str);
+	RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, 0);
+	if (!fcn) {
+		return;
+	}
+	RListIter *iter;
+	RAnalVar *var;
+	size_t len = strlen (str);
+	RList *vars = r_anal_var_all_list (core->anal, fcn);
+	r_list_foreach (vars, iter, var) {
+		if (!strncmp (var->name, str, len)) {
+			r_line_completion_push (completion, var->name);
+		}
 	}
 }
 
@@ -1752,6 +1769,9 @@ static bool find_autocomplete(RCore *core, RLineCompletion *completion, RLineBuf
 	case R_CORE_AUTOCMPLT_BRKP:
 		autocomplete_breakpoints (core, completion, p);
 		break;
+	case R_CORE_AUTOCMPLT_VARS:
+		autocomplete_vars (core, completion, p);
+		break;
 	case R_CORE_AUTOCMPLT_MACR:
 		autocomplete_macro (core, completion, p);
 		break;
@@ -1921,32 +1941,6 @@ R_API void r_core_autocomplete(R_NULLABLE RCore *core, RLineCompletion *completi
 				}
 			}
 		}
-	} else if ((!strncmp (buf->data, "afvn ", 5))
-	|| (!strncmp (buf->data, "afan ", 5))) {
-		RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->offset, 0);
-		RList *vars;
-		if (!strncmp (buf->data, "afvn ", 5)) {
-			vars = r_anal_var_list (core->anal, fcn, R_ANAL_VAR_KIND_BPV);
-		} else {
-			vars = r_list_new (); // TODO wtf r_anal_var_list (core->anal, fcn, R_ANAL_VAR_KIND_ARG);
-		}
-		const char *f_ptr, *l_ptr;
-		RAnalVar *var;
-		int len = strlen (buf->data);
-
-		f_ptr = r_sub_str_lchr (buf->data, 0, buf->index, ' ');
-		f_ptr = f_ptr != NULL ? f_ptr + 1 : buf->data;
-		l_ptr = r_sub_str_rchr (buf->data, buf->index, len, ' ');
-		if (!l_ptr) {
-			l_ptr = buf->data + len;
-		}
-		RListIter *iter;
-		r_list_foreach (vars, iter, var) {
-			if (!strncmp (f_ptr, var->name, l_ptr - f_ptr)) {
-				r_line_completion_push (completion, var->name);
-			}
-		}
-		r_list_free (vars);
 	} else if (!strncmp (buf->data, "t ", 2)
 	|| !strncmp (buf->data, "t- ", 3)) {
 		SdbList *l = sdb_foreach_list (core->anal->sdb_types, true);
@@ -2568,6 +2562,9 @@ static void __init_autocomplete_default (RCore* core) {
 		"/m", "zos", "zfd", "zfs", "zfz", "cat", "wta", "wtf", "wxf", "dml", "vi",
 		"less", "head", "tail", NULL
 	};
+	const char *vars[] = {
+		"afvn", "afan", NULL
+	};
 	const char *projs[] = {
 		"Pc", "Pd", "Pi", "Po", "Ps", "P-", NULL
 	};
@@ -2578,6 +2575,7 @@ static void __init_autocomplete_default (RCore* core) {
 	__foreach (core, seeks, R_CORE_AUTOCMPLT_SEEK);
 	__foreach (core, fcns, R_CORE_AUTOCMPLT_FCN);
 	__foreach (core, evals, R_CORE_AUTOCMPLT_EVAL);
+	__foreach (core, vars, R_CORE_AUTOCMPLT_VARS);
 	__foreach (core, breaks, R_CORE_AUTOCMPLT_BRKP);
 	__foreach (core, files, R_CORE_AUTOCMPLT_FILE);
 	__foreach (core, projs, R_CORE_AUTOCMPLT_PRJT);
@@ -3582,7 +3580,7 @@ reaccept:
 					// silly http emulation over rap://
 					char line[256] = {0};
 					r_socket_read_block (c, (ut8*)line, sizeof (line));
-					if (!strncmp (line, "ET /cmd/", 8)) {
+					if (!r_str_ncpy (line, "ET /cmd/", 8)) {
 						char *cmd = line + 8;
 						char *http = strstr (cmd, "HTTP");
 						if (http) {

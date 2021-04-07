@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2011-2020 - earada, pancake */
+/* radare - LGPL - Copyright 2011-2021 - earada, pancake */
 
 #include <r_core.h>
 #include <r_config.h>
@@ -1648,7 +1648,7 @@ static void add_metadata(RCore *r, RBinReloc *reloc, ut64 addr, int mode) {
 		return;
 	}
 
-	RIOMap *map = r_io_map_get (r->io, addr);
+	RIOMap *map = r_io_map_get_at (r->io, addr);
 	if (!map || map ->perm & R_PERM_X) {
 		return;
 	}
@@ -1700,12 +1700,16 @@ static int bin_relocs(RCore *r, PJ *pj, int mode, int va) {
 
 	va = VA_TRUE; // XXX relocs always vaddr?
 	//this has been created for reloc object files
-	const bool bin_cache = r_config_get_i (r->config, "bin.cache");
+	bool bin_cache = r_config_get_i (r->config, "bin.cache");
 	if (bin_cache) {
 		r_config_set (r->config, "io.cache", "true");
 	}
 	RBNode *relocs = r_bin_patch_relocs (r->bin);
 	if (!relocs) {
+		if (bin_cache) {
+			r_config_set (r->config, "io.cache", "false");
+			bin_cache = false;
+		}
 		relocs = r_bin_get_relocs (r->bin);
 	}
 	if (bin_cache) {
@@ -2600,7 +2604,7 @@ static bool io_create_mem_map(RIO *io, RBinSection *sec, ut64 at) {
 	char *uri = r_str_newf ("null://%"PFMT64u, gap);
 	RIODesc *desc = findReusableFile (io, uri, sec->perm);
 	if (desc) {
-		RIOMap *map = r_io_map_get (io, at);
+		RIOMap *map = r_io_map_get_at (io, at);
 		if (!map) {
 			r_io_map_add_batch (io, desc->fd, desc->perm, 0LL, at, gap);
 		}
@@ -2614,7 +2618,7 @@ static bool io_create_mem_map(RIO *io, RBinSection *sec, ut64 at) {
 		return false;
 	}
 	// this works, because new maps are always born on the top
-	RIOMap *map = r_io_map_get (io, at);
+	RIOMap *map = r_io_map_get_at (io, at);
 	// check if the mapping failed
 	if (!map) {
 		if (!reused) {
@@ -2739,13 +2743,15 @@ static int bin_sections(RCore *r, PJ *pj, int mode, ut64 laddr, int va, ut64 at,
 	bool printHere = false;
 	sections = r_bin_get_sections (r->bin);
 #if LOAD_BSS_MALLOC
-	bool inDebugger = r_config_get_i (r->config, "cfg.debug");
+	const bool inDebugger = r_config_get_b (r->config, "cfg.debug");
 #endif
 	HtPP *dup_chk_ht = ht_pp_new0 ();
 	bool ret = false;
 	const char *type = print_segments ? "segment" : "section";
 	bool segments_only = true;
 	RList *io_section_info = NULL;
+	ut64 bin_hashlimit = r_config_get_i (r->config, "bin.hashlimit");
+	ut64 filesize = (r->io->desc) ? r_io_fd_size (r->io, r->io->desc->fd): 0;
 
 	if (!dup_chk_ht) {
 		return false;
@@ -2947,7 +2953,6 @@ static int bin_sections(RCore *r, PJ *pj, int mode, ut64 laddr, int va, ut64 at,
 						eprintf ("Could not allocate memory\n");
 						goto out;
 					}
-
 					ibs->sec = section;
 					ibs->addr = addr;
 					ibs->fd = fd;
@@ -2959,14 +2964,23 @@ static int bin_sections(RCore *r, PJ *pj, int mode, ut64 laddr, int va, ut64 at,
 		} else if (IS_MODE_SIMPLE (mode)) {
 			char *hashstr = NULL;
 			if (hashtypes) {
-				ut8 *data = malloc (section->size);
-				if (!data) {
-					goto out;
+				int datalen = section->size;
+				int limit = filesize? R_MIN (filesize, bin_hashlimit): bin_hashlimit;
+				if (datalen > 0 && datalen < limit) {
+					ut8 *data = malloc (datalen);
+					if (!data) {
+						goto out;
+					}
+					int dl = r_io_pread_at (r->io, section->paddr, data, datalen);
+					if (dl == datalen) {
+						hashstr = build_hash_string (pj, mode, hashtypes, data, datalen);
+					} else if (r->bin->verbose) {
+						eprintf ("Cannot read section at 0x%08"PFMT64x"\n", section->paddr);
+					}
+					free (data);
+				} else if (r->bin->verbose) {
+					eprintf ("Section at 0x%08"PFMT64x" larger than bin.hashlimit\n", section->paddr);
 				}
-				ut32 datalen = section->size;
-				r_io_pread_at (r->io, section->paddr, data, datalen);
-				hashstr = build_hash_string (pj, mode, hashtypes, data, datalen);
-				free (data);
 			}
 			r_cons_printf ("0x%"PFMT64x" 0x%"PFMT64x" %s %s%s%s\n",
 				addr, addr + section->size,
@@ -2981,34 +2995,48 @@ static int bin_sections(RCore *r, PJ *pj, int mode, ut64 laddr, int va, ut64 at,
 			pj_kN (pj, "size", section->size);
 			pj_kN (pj, "vsize", section->vsize);
 			pj_ks (pj, "perm", perms);
-			if (hashtypes && section->size > 0) {
-				ut8 *data = malloc (section->size);
-				if (!data) {
-					goto out;
+			if (hashtypes && (int)section->size > 0) {
+				int datalen = section->size;
+				int limit = filesize? R_MIN (filesize, bin_hashlimit): bin_hashlimit;
+				if (datalen > 0 && datalen < limit) {
+					ut8 *data = malloc (datalen);
+					if (!data) {
+						goto out;
+					}
+					int dl = r_io_pread_at (r->io, section->paddr, data, datalen);
+					if (dl == datalen) {
+						free (build_hash_string (pj, mode, hashtypes, data, datalen));
+					} else if (r->bin->verbose) {
+						eprintf ("Cannot read section at 0x%08"PFMT64x"\n", section->paddr);
+					}
+					free (data);
+				} else if (r->bin->verbose) {
+					eprintf ("Section at 0x%08"PFMT64x" larger than bin.hashlimit\n", section->paddr);
 				}
-				ut32 datalen = section->size;
-				r_io_pread_at (r->io, section->paddr, data, datalen);
-				build_hash_string (pj, mode, hashtypes,
-					data, datalen);
-				free (data);
 			}
 			pj_kN (pj, "paddr", section->paddr);
 			pj_kN (pj, "vaddr", addr);
 			pj_end (pj);
 		} else {
 			char *hashstr = NULL, str[128];
-			if (hashtypes) {
-				ut8 *data = malloc (section->size);
-				if (!data) {
-					goto out;
+			if (hashtypes && section->size > 0) {
+				int datalen = section->size;
+				int limit = filesize? R_MIN (filesize, bin_hashlimit): bin_hashlimit;
+				if (datalen > 0 && datalen < limit) {
+					ut8 *data = malloc (datalen);
+					if (!data) {
+						goto out;
+					}
+					int dl = r_io_pread_at (r->io, section->paddr, data, datalen);
+					if (dl == datalen) {
+						hashstr = build_hash_string (pj, mode, hashtypes, data, datalen);
+					} else if (r->bin->verbose) {
+						eprintf ("Cannot read section at 0x%08"PFMT64x"\n", section->paddr);
+					}
+					free (data);
+				} else if (r->bin->verbose) {
+					eprintf ("Section at 0x%08"PFMT64x" larger than bin.hashlimit\n", section->paddr);
 				}
-				ut32 datalen = section->size;
-				// VA READ IS BROKEN?
-				if (datalen > 0) {
-					r_io_pread_at (r->io, section->paddr, data, datalen);
-				}
-				hashstr = build_hash_string (pj, mode, hashtypes, data, datalen);
-				free (data);
 			}
 			if (section->arch || section->bits) {
 				snprintf (str, sizeof (str), "arch=%s bits=%d ",
@@ -3025,7 +3053,7 @@ static int bin_sections(RCore *r, PJ *pj, int mode, ut64 laddr, int va, ut64 at,
 				r_table_add_rowf (table, "dXxXxsss", i,
 					(ut64)section->paddr, (ut64)section->size,
 					(ut64)addr, (ut64)section->vsize,
-					perms, hashstr, section_name);
+					perms, r_str_get (hashstr), section_name);
 			} else {
 				r_table_add_rowf (table, "dXxXxss", i,
 					(ut64)section->paddr, (ut64)section->size,

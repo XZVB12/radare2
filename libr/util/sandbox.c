@@ -233,7 +233,10 @@ R_API int r_sandbox_system(const char *x, int n) {
 		return system (x);
 #endif
 	}
-	return execl ("/bin/sh", "sh", "-c", x, (const char*)NULL);
+	char *bin_sh = r_file_binsh ();
+	int rc = execl (bin_sh, "sh", "-c", x, (const char*)NULL);
+	free (bin_sh);
+	return rc;
 #else
 	#include <spawn.h>
 	if (n && !strchr (x, '|')) {
@@ -273,9 +276,11 @@ R_API int r_sandbox_system(const char *x, int n) {
 	if (child) {
 		return waitpid (child, NULL, 0);
 	}
-	if (execl ("/bin/sh", "sh", "-c", x, (const char*)NULL) == -1) {
+	char *bin_sh = r_file_binsh ();
+	if (execl (bin_sh, "sh", "-c", x, (const char*)NULL) == -1) {
 		perror ("execl");
 	}
+	free (bin_sh);
 	exit (1);
 #endif
 #endif

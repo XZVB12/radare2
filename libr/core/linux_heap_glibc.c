@@ -104,7 +104,7 @@ static GHT GH(get_main_arena_with_symbol)(RCore *core, RDebugMap *map) {
 static bool GH(is_tcache)(RCore *core) {
 	char *fp = NULL;
 	double v = 0;
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		RDebugMap *map;
 		RListIter *iter;
 		r_debug_map_sync (core->dbg);
@@ -207,7 +207,7 @@ static bool GH(update_main_arena)(RCore *core, GHT m_arena, MallocState *main_ar
 }
 
 static void GH(get_brks)(RCore *core, GHT *brk_start, GHT *brk_end) {
-	if (r_config_get_i (core->config, "cfg.debug")) {
+	if (r_config_get_b (core->config, "cfg.debug")) {
 		RListIter *iter;
 		RDebugMap *map;
 		r_debug_map_sync (core->dbg);
@@ -397,7 +397,7 @@ static bool GH(r_resolve_main_arena)(RCore *core, GHT *m_arena) {
 	GHT libc_addr_sta = GHT_MAX, libc_addr_end = 0;
 	GHT addr_srch = GHT_MAX, heap_sz = GHT_MAX;
 	GHT main_arena_sym = GHT_MAX;
-	bool is_debugged = r_config_get_i (core->config, "cfg.debug");
+	const bool is_debugged = r_config_get_b (core->config, "cfg.debug");
 	bool first_libc = true;
 
 	if (is_debugged) {
@@ -429,7 +429,7 @@ static bool GH(r_resolve_main_arena)(RCore *core, GHT *m_arena) {
 	}
 
 	if (libc_addr_sta == GHT_MAX || libc_addr_end == GHT_MAX) {
-		if (r_config_get_i (core->config, "cfg.debug")) {
+		if (r_config_get_b (core->config, "cfg.debug")) {
 			eprintf ("Warning: Can't find glibc mapped in memory (see dm)\n");
 		} else {
 			eprintf ("Warning: Can't find arena mapped in memory (see om)\n");
@@ -650,13 +650,13 @@ static int GH(print_double_linked_list_bin_graph)(RCore *core, GHT bin, MallocSt
 		snprintf (chunk, sizeof (chunk) - 1, "fd: 0x%"PFMT64x"\nbk: 0x%"PFMT64x"\n",
 			(ut64)cnk->fd, (ut64)cnk->bk);
 		next_node = r_agraph_add_node (g, title, chunk, NULL);
-		r_agraph_add_edge (g, prev_node, next_node);
-		r_agraph_add_edge (g, next_node, prev_node);
+		r_agraph_add_edge (g, prev_node, next_node, false);
+		r_agraph_add_edge (g, next_node, prev_node, false);
 		prev_node = next_node;
 	}
 
-	r_agraph_add_edge (g, prev_node, bin_node);
-	r_agraph_add_edge (g, bin_node, prev_node);
+	r_agraph_add_edge (g, prev_node, bin_node, false);
+	r_agraph_add_edge (g, bin_node, prev_node, false);
 	r_agraph_print (g);
 
 	free (cnk);
@@ -1052,7 +1052,7 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 		GH(get_brks) (core, &brk_start, &brk_end);
 		if (tcache) {
 			initial_brk = ((brk_start >> 12) << 12) + GH(HDR_SZ);
-			if (r_config_get_i (core->config, "cfg.debug")) {
+			if (r_config_get_b (core->config, "cfg.debug")) {
 				tcache_initial_brk = initial_brk;
 			}
 			initial_brk += (glibc_version < 230)
@@ -1333,7 +1333,7 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 			if (first_node) {
 				first_node = false;
 			} else {
-				r_agraph_add_edge (g, prev_node, chunk_node);
+				r_agraph_add_edge (g, prev_node, chunk_node, false);
 			}
 			prev_node = chunk_node;
 			break;
@@ -1343,7 +1343,7 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 	switch (format_out) {
 	case 'c':
 		PRINT_YA ("\n  Top chunk @ ");
-		PRINTF_BA ("0x%"PFMT64x, (ut64)main_arena->GH(top));
+		PRINTF_BA ("0x%"PFMT64x, (ut64)main_arena->GH (top));
 		PRINT_GA (" - [brk_start: ");
 		PRINTF_BA ("0x%"PFMT64x, (ut64)brk_start);
 		PRINT_GA (", brk_end: ");
@@ -1361,14 +1361,14 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 		break;
 	case '*':
 		r_cons_printf ("fs-\n");
-		r_cons_printf ("f heap.top = 0x%08"PFMT64x"\n", (ut64)main_arena->GH(top));
+		r_cons_printf ("f heap.top = 0x%08"PFMT64x"\n", (ut64)main_arena->GH (top));
 		r_cons_printf ("f heap.brk = 0x%08"PFMT64x"\n", (ut64)brk_start);
 		r_cons_printf ("f heap.end = 0x%08"PFMT64x"\n", (ut64)brk_end);
 		break;
 	case 'g':
 		top = r_agraph_add_node (g, top_title, top_data, NULL);
 		if (!first_node) {
-			r_agraph_add_edge (g, prev_node, top);
+			r_agraph_add_edge (g, prev_node, top, false);
 			free (node_data);
 			free (node_title);
 		}
@@ -1379,7 +1379,7 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 		break;
 	}
 
-	r_cons_printf ("\n");
+	r_cons_newline ();
 	free (g);
 	free (top_data);
 	free (top_title);
